@@ -46,6 +46,13 @@ def sh(cmd):
     subprocess.run(cmd, shell=True, check=True)
 
 
+def looks_like_html(path):
+    """Google Drive answers some failed downloads with an HTML page instead of the file."""
+    with open(path, "rb") as f:
+        head = f.read(512).lstrip().lower()
+    return head.startswith(b"<!doctype html") or head.startswith(b"<html")
+
+
 def fetch(name, urls=(), gid=None):
     """Download archive `name` (Google Drive id first, then the URLs in order). Returns its path."""
     os.makedirs(ARCH, exist_ok=True)
@@ -53,14 +60,17 @@ def fetch(name, urls=(), gid=None):
     if os.path.isfile(dst) and os.path.getsize(dst) > 0:
         return dst
     if gid:
-        import gdown
         try:
-            if gdown.download(id=gid, output=dst, quiet=False) is not None:
+            import gdown
+            if gdown.download(id=gid, output=dst, quiet=False) is not None and not looks_like_html(dst):
                 return dst
         except Exception as e:
-            print("  Google Drive download failed:", e)
+            print("  gdown failed ({}), trying the direct Google Drive link".format(e))
+        # direct link: works when gdown cannot parse Google's confirmation page
+        urls = ["https://drive.usercontent.google.com/download?id={}&export=download&confirm=t".format(gid)] + list(urls)
     for url in urls:
-        if subprocess.run(f'curl -L --fail --retry 5 --progress-bar -o "{dst}" "{url}"', shell=True).returncode == 0:
+        ok = subprocess.run(f'curl -L --fail --retry 5 --progress-bar -o "{dst}" "{url}"', shell=True).returncode == 0
+        if ok and os.path.getsize(dst) > 0 and not looks_like_html(dst):
             return dst
     if os.path.exists(dst):
         os.remove(dst)
