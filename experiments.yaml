@@ -1,0 +1,101 @@
+# =====================================================================================
+#  experiments.yaml  -  WHAT to run. One block = one experiment.
+#
+#  Cluster:  bash run.sh run <name> [<name> ...]     (one GPU job per backbone)
+#  Colab:    !python experiments.py run <name>
+#  Preview:  python experiments.py run <name> --dry-run   (prints the commands, runs nothing)
+#
+#  Keys of a block (only `datasets` is required):
+#    description  free text, shown in results/REPORT.md
+#    datasets     a list of dataset names, or `cd` / `ood` = the whole benchmark in the
+#                 official order. Datasets that are not on disk are skipped.
+#                 Names: I A V R S  caltech101 dtd eurosat fgvc food101 oxford_flowers
+#                        oxford_pets stanford_cars sun397 ucf101
+#    fallback     datasets to use if none of `datasets` is on disk (e.g. ImageNet missing)
+#    backbones    [RN50, ViT-B/16]                                    (default: [RN50])
+#    official     true -> also run the authors' code, with default settings (default: false)
+#    time         SLURM time limit of each job, HH:MM:SS               (default: TIME_DEFAULT)
+#    grid         the settings to try. Every combination of the listed values is one run,
+#                 and each run covers all the datasets. Possible keys:
+#                   mode:  tda | pos | neg | clip      (full TDA, one cache only, zero-shot CLIP)
+#                   seed:  integers                    (default 1, the paper's seed)
+#                   order: official | random | sorted  (order of the test stream, see below)
+#                   any value of the official configs/*.yaml, e.g. positive.shot_capacity,
+#                   positive.alpha, positive.beta, negative.entropy_threshold.lower, ...
+#                 A list of grids runs each of them (see ablation_shots).
+#
+#  Stream orders:
+#    official  the authors' shuffled stream. Only this one reproduces the paper's numbers.
+#    random    a new shuffle per seed, independent of the other datasets of the run.
+#    sorted    images grouped by class: a non-i.i.d. stream (hard case for the caches).
+#
+#  Every run also stores CLIP's accuracy on the same images (column clip_acc) and a
+#  per-image trace in results/traces/ for notebooks/analysis.ipynb.
+#  Finished runs are never repeated: re-submitting an experiment only runs what is missing.
+# =====================================================================================
+
+# ---------------------------------------------------------------- paper reproduction
+paper_cd:
+  description: Table 3 - cross-domain benchmark (official code and replica)
+  datasets: cd
+  backbones: [RN50, ViT-B/16]
+  official: true
+  time: "12:00:00"
+
+paper_ood:
+  description: Table 1 - out-of-distribution benchmark (official code and replica)
+  datasets: ood
+  backbones: [RN50, ViT-B/16]
+  official: true
+  time: "48:00:00"
+
+ablation_components:
+  description: Fig. 3 - contribution of each cache (CLIP only, positive only, negative only, both)
+  datasets: [I]
+  fallback: cd
+  backbones: [RN50]
+  grid:
+    mode: [clip, pos, neg, tda]
+  time: "24:00:00"
+
+ablation_shots:
+  description: Fig. 4 - shot capacity of each cache, used alone
+  datasets: [I]
+  fallback: cd
+  backbones: [RN50]
+  grid:
+    - mode: [pos]
+      positive.shot_capacity: [1, 2, 3, 4, 5, 6]
+    - mode: [neg]
+      negative.shot_capacity: [1, 2, 3, 4, 5, 6]
+  time: "48:00:00"
+
+# ---------------------------------------------------------------- new experiments
+# Examples to copy and edit. They are not part of `bash run.sh all`: run them by name.
+
+seeds:
+  description: How much does the result depend on the order of the stream? (5 random shuffles)
+  datasets: [caltech101, dtd, eurosat, oxford_pets]
+  backbones: [RN50]
+  grid:
+    order: [random]
+    seed: [1, 2, 3, 4, 5]
+  time: "08:00:00"
+
+stream_order:
+  description: i.i.d. stream vs images grouped by class
+  datasets: [dtd, eurosat, oxford_pets]
+  backbones: [RN50]
+  grid:
+    order: [random, sorted]
+    seed: [1, 2, 3]
+  time: "08:00:00"
+
+alpha_beta:
+  description: Sensitivity to the positive-cache weight (alpha) and sharpness (beta)
+  datasets: [dtd, eurosat]
+  backbones: [RN50]
+  grid:
+    positive.alpha: [0.5, 1.0, 2.0, 4.0]
+    positive.beta: [2.0, 5.0, 8.0]
+  time: "08:00:00"

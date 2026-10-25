@@ -1,0 +1,3 @@
+# Keep Unix line endings for everything that runs on Linux, even if committed from Windows
+* text=auto eol=lf
+*.png binary
