@@ -160,19 +160,21 @@ def dataset_sizes(dry_run=False):
     from datasets import build_dataset
     from datasets.imagenet import ImageNet
     key = {"A": "imagenet-a", "V": "imagenet-v", "R": "imagenet-r", "S": "imagenet-s"}
-    sizes = {}
+    sizes, errors = {}, {}
     for name in ALL_DATASETS:
         try:
             if name == "I":
                 sizes[name] = len(ImageNet(DATA_DIR + "/", None).test)
             else:
                 sizes[name] = len(build_dataset(key.get(name, name), DATA_DIR + "/").test)
-        except Exception:
+        except Exception as e:      # missing or incomplete: keep the reason, it is shown by `check`
             sizes[name] = None
+            errors[name] = "{}: {}".format(type(e).__name__, e)[:300]
     os.chdir(cwd)
     os.makedirs(RESULTS_DIR, exist_ok=True)
     with open(CHECK_FILE, "w") as f:
-        json.dump({"data_dir": DATA_DIR, "sizes": sizes, "expected": EXPECTED_SIZE}, f, indent=2)
+        json.dump({"data_dir": DATA_DIR, "sizes": sizes, "expected": EXPECTED_SIZE, "errors": errors}, f, indent=2)
+    dataset_sizes.errors = errors
     return sizes
 
 
@@ -335,7 +337,7 @@ def cmd_check(args):
     sizes = dataset_sizes(args.dry_run)
     for name, n in sizes.items():
         if n is None:
-            note = "missing"
+            note = "missing  ({})".format(getattr(dataset_sizes, "errors", {}).get(name, "?")[:150])
         elif n == EXPECTED_SIZE[name]:
             note = "OK"
         else:   # the official loader drops files whose name contains "sh" (e.g. 'plushie_*' in ImageNet-R)
@@ -343,7 +345,8 @@ def cmd_check(args):
         print("  {:16s} {:>6s}  {}".format(PRETTY[name], str(n or "-"), note))
     available = [d for d, n in sizes.items() if n]
     if not available:
-        raise SystemExit("No dataset found: download them first (bash run.sh data).")
+        raise SystemExit("No dataset found in {}. The reason for each one is printed above; usually the download "
+                         "step failed (see its summary) or DATA_DIR points elsewhere.".format(DATA_DIR))
 
     verify_ds = next(d for d in ["dtd", "caltech101", "eurosat", "oxford_pets"] + available if d in available)
     backbones = os.environ.get("BACKBONES", "RN50 ViT-B/16").split()
