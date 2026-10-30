@@ -37,6 +37,10 @@ cat <<'EOF'
                       extract CLIP features of dataset NAME once (one job per backbone),
                       e.g.  bash run.sh features core50 --root ~/tda_data/core50_350x350
                             bash run.sh features dtd
+    features-run [streams.py run options]
+                      TDA on saved features (stream orders, many seeds) in one GPU job, e.g.
+                      bash run.sh features-run --dataset core50 --backbone RN50 --cfg-like caltech101 \
+                           --order s0,s1,s2,s3 --repeats 50
 
   MONITORING AND RESULTS
     status            your jobs in the queue + the last progress line of each log
@@ -154,10 +158,18 @@ case "$cmd" in
         name="$1"; shift
         for bb in $BACKBONES; do
             id=$(JOB_CMD=_features submit "tda-feat-$name-${bb//\//-}" "$TIME_DEFAULT" "" \
-                 extract --dataset "$name" --backbone "$bb" "$@")
+                 extract_features.py extract --dataset "$name" --backbone "$bb" "$@")
             echo "  features $name $bb: job $id"
         done
         echo "Follow with:  bash run.sh status      Output:  results/features/" ;;
+
+    features-run)
+        shift || true
+        [[ $# -gt 0 ]] || { echo "Usage: bash run.sh features-run --dataset core50 --backbone RN50 --cfg-like caltech101 --order s0,s1,s2,s3 --repeats 50"; exit 1; }
+        require_ready
+        id=$(JOB_CMD=_features submit "tda-featrun" "$TIME_DEFAULT" "" streams.py run "$@")
+        echo "  submitted job $id: streams.py run $*"
+        echo "Follow with:  bash run.sh status      Table:  python streams.py summary" ;;
 
     list)
         activate_env "$ENV_NAME"
@@ -196,14 +208,14 @@ case "$cmd" in
         echo "Done - $(date) - exit code $status"
         exit $status ;;
 
-    _features)   # internal: feature-extraction job on the GPU node
+    _features)   # internal: feature job on the GPU node (extract_features.py or streams.py)
         shift
         activate_env "$ENV_NAME"
         export PYTHONUNBUFFERED=1
         cd "$HERE"
-        echo "Job $SLURM_JOB_ID ($SLURM_JOB_NAME) on $(hostname) - $(date) - features.py $*"
+        echo "Job $SLURM_JOB_ID ($SLURM_JOB_NAME) on $(hostname) - $(date) - python $*"
         nvidia-smi --query-gpu=name,memory.total --format=csv,noheader || true
-        python features.py "$@"
+        python "$@"
         echo "Done - $(date)" ;;
 
     help|-h|--help|*)

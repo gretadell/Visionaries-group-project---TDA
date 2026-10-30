@@ -47,6 +47,8 @@ TDA_replication/
 ├── experiments.yaml         WHAT to run: one block per experiment
 ├── experiments.py           runs the experiments, builds results/REPORT.md
 ├── tda_replica.py           the METHOD (re-implementation of TDA)
+├── extract_features.py      CLIP features computed once (DTD, EuroSAT, CORe50) + equivalence check
+├── streams.py               TDA on the saved features: stream orders S0-S3, many seeds, summary table
 ├── prepare_data.py          downloads and arranges the datasets
 └── notebooks/
     ├── colab.ipynb          runs the same files on Google Colab
@@ -60,6 +62,8 @@ TDA_replication/
 | change or extend the method (new cache rule, new stream order, new variant) | `tda_replica.py` |
 | change the report or add a table | `experiments.py` (section *Report*) |
 | make plots or analyse what happens along the stream | `notebooks/analysis.ipynb` |
+| compute CLIP features of a dataset once (e.g. CORe50) | nothing: `bash run.sh features core50 --root <folder>` (`extract_features.py`) |
+| run TDA on saved features with other stream orders (S0-S3) or many seeds | nothing: `python streams.py run ...`, table with `python streams.py summary` |
 
 Created when you run it, and ignored by git: `TDA/` (official repository), `results/` (everything to look at),
 `logs/` (full logs), and the datasets folder (`~/tda_data` by default).
