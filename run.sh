@@ -33,6 +33,10 @@ cat <<'EOF'
     all               check, then the paper reproduction: paper_cd paper_ood ablation_components ablation_shots
     run NAME [NAME..] run experiments of experiments.yaml (one job per backbone)
     list              show the experiments defined in experiments.yaml
+    features NAME [options]
+                      extract CLIP features of dataset NAME once (one job per backbone),
+                      e.g.  bash run.sh features core50 --root ~/tda_data/core50_350x350
+                            bash run.sh features dtd
 
   MONITORING AND RESULTS
     status            your jobs in the queue + the last progress line of each log
@@ -69,7 +73,7 @@ submit() {
                 --export "ALL,TDA_HOME=$HERE")
     [[ -n "$SLURM_QOS" ]] && opts+=(--qos "$SLURM_QOS")
     [[ -n "$dep" ]] && opts+=(--dependency "$dep")
-    sbatch "${opts[@]}" "$HERE/run.sh" _job "$@"
+    sbatch "${opts[@]}" "$HERE/run.sh" "${JOB_CMD:-_job}" "$@"
 }
 
 # submit_experiment <name> <dependency or "">  -> one job per backbone, prints "id(backbone) ..."
@@ -143,6 +147,18 @@ case "$cmd" in
         done
         echo "Follow with:  bash run.sh status      Results:  results/REPORT.md" ;;
 
+    features)
+        shift || true
+        [[ $# -gt 0 ]] || { echo "Usage: bash run.sh features NAME [--root FOLDER] [--every N] [--sessions 3,7,10]"; exit 1; }
+        require_ready
+        name="$1"; shift
+        for bb in $BACKBONES; do
+            id=$(JOB_CMD=_features submit "tda-feat-$name-${bb//\//-}" "$TIME_DEFAULT" "" \
+                 extract --dataset "$name" --backbone "$bb" "$@")
+            echo "  features $name $bb: job $id"
+        done
+        echo "Follow with:  bash run.sh status      Output:  results/features/" ;;
+
     list)
         activate_env "$ENV_NAME"
         python "$HERE/experiments.py" list ;;
@@ -179,6 +195,16 @@ case "$cmd" in
         python experiments.py report --quiet || echo "(report not updated)"   # keep REPORT.md up to date
         echo "Done - $(date) - exit code $status"
         exit $status ;;
+
+    _features)   # internal: feature-extraction job on the GPU node
+        shift
+        activate_env "$ENV_NAME"
+        export PYTHONUNBUFFERED=1
+        cd "$HERE"
+        echo "Job $SLURM_JOB_ID ($SLURM_JOB_NAME) on $(hostname) - $(date) - features.py $*"
+        nvidia-smi --query-gpu=name,memory.total --format=csv,noheader || true
+        python features.py "$@"
+        echo "Done - $(date)" ;;
 
     help|-h|--help|*)
         usage ;;
