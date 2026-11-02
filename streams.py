@@ -52,7 +52,16 @@ import torch
 import tda_replica as tda
 from utils import get_config_file
 
-ORDERS = ["stored", "random", "sorted", "s0", "s1", "s2", "s3"]
+ORDERS = ["stored", "random", "sorted", "s0", "s1", "s2", "s3", "instance", "class_instance", "class_iid"]
+
+
+def video_ids(meta):
+    """Video of every row: Stream-51 saves it ('video'); for CORe50 a video is one object in one session."""
+    if "video" in meta:
+        return list(meta["video"])
+    if "session" in meta and "object" in meta:
+        return list(zip(meta["session"], meta["object"]))
+    return None
 
 
 def feature_path(dataset, backbone):
@@ -83,6 +92,11 @@ def stream_order(data, order, seed, dataset, rho=0.9):
       s3  (CORe50)   : one session at a time (random order); inside a session, the videos of the objects
                        in random order, each video with its frames in temporal order.
                        S3 differs from S2 only by the temporal order inside the session.
+      Stream-51 protocol orders (CORe50 too, with video = object x session):
+      instance       : videos in random order, each with its frames in temporal order (like S3, no sessions)
+      class_instance : classes in random order; inside a class its videos in random order, frames in order
+      class_iid      : classes in random order; frames shuffled inside a class
+      (iid = s0.)
     The randomness depends only on (seed, dataset, order), so 50 seeds = 50 different streams.
     """
     labels = data["labels"]
@@ -114,8 +128,42 @@ def stream_order(data, order, seed, dataset, rho=0.9):
         return idx
 
     meta = data["meta"]
+    if order in ("instance", "class_instance", "class_iid"):
+        # the orderings of the Stream-51 protocol (also defined for CORe50, where a video = object x session)
+        lab = labels.tolist()
+        if order == "class_iid":                 # classes in random order, frames shuffled inside a class
+            classes = sorted(set(lab))
+            rng.shuffle(classes)
+            idx = []
+            for c in classes:
+                rows = [i for i in range(n) if lab[i] == c]
+                rng.shuffle(rows)
+                idx += rows
+            return idx
+        vids = video_ids(meta)
+        if vids is None:
+            raise SystemExit(f"order {order} needs videos: only available for core50 and stream51")
+        videos = {}
+        for i in range(n):                       # stored order = temporal order inside a video
+            videos.setdefault(vids[i], []).append(i)
+        keys = sorted(videos, key=str)
+        if order == "instance":                  # videos in random order, frames in temporal order
+            rng.shuffle(keys)
+            return [i for k in keys for i in videos[k]]
+        by_class = {}                            # class_instance: classes in random order; inside a
+        for k in keys:                           # class, its videos in random order, frames in order
+            by_class.setdefault(lab[videos[k][0]], []).append(k)
+        classes = sorted(by_class)
+        rng.shuffle(classes)
+        idx = []
+        for c in classes:
+            ks = by_class[c]
+            rng.shuffle(ks)
+            idx += [i for k in ks for i in videos[k]]
+        return idx
+
     if "session" not in meta:
-        raise SystemExit(f"order {order} needs sessions/videos: only available for core50")
+        raise SystemExit(f"order {order} needs sessions: only available for core50")
     sessions = sorted(set(meta["session"]))
     rng.shuffle(sessions)
     idx = []
@@ -202,6 +250,7 @@ def cache_stats_hook(data, idx):
     labels = data["labels"].tolist()
     meta = data["meta"]
     sess, obj, frame = (meta.get(k) for k in ("session", "object", "frame"))
+    obj = obj or meta.get("video")              # Stream-51: "same object" = same video
 
     def hook(step, row, pos_cache, neg_cache):
         r = idx[step]
@@ -298,8 +347,8 @@ def run(args):
     # args.dataset is the feature-file name (e.g. core50_350); base is the real dataset (core50).
     # The stream orders are seeded with base, so core50 and core50_350 see the same streams.
     base = data.get("dataset", args.dataset)
-    if base == "core50" and not args.cfg_like:
-        raise SystemExit("core50 has no official config: pass e.g. --cfg-like caltech101")
+    if base in ("core50", "stream51") and not args.cfg_like:
+        raise SystemExit(f"{base} has no official config: pass e.g. --cfg-like caltech101")
     overrides = tda.parse_overrides(args.overrides)
     out_file = os.path.join(RESULTS_DIR, "feature_runs.jsonl")
     os.makedirs(RESULTS_DIR, exist_ok=True)
@@ -335,7 +384,8 @@ def run(args):
                         for row, i in zip(trace, idx):   # saved row of each step (session, object, frame)
                             row["row"] = i
                             for k in ("session", "object", "frame"):
-                                row.setdefault(k, meta[k][i] if k in meta else -1)
+                                src = k if k in meta else ("video" if k == "object" and "video" in meta else None)
+                                row.setdefault(k, meta[src][i] if src else -1)
                         tda.write_trace(os.path.join(RESULTS_DIR, "feature_traces", name + ".csv.gz"), trace)
                     res.update({"key": key, "impl": "features", "dataset": args.dataset,
                                 "backbone": args.backbone, "mode": mode, "order": order, "rho": rho,
