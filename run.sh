@@ -35,7 +35,7 @@ cat <<'EOF'
     list              show the experiments defined in experiments.yaml
     features NAME [options]
                       extract CLIP features of dataset NAME once (one job per backbone),
-                      e.g.  bash run.sh features core50 --root ~/tda_data/core50_350x350
+                      e.g.  bash run.sh features core50 --root ~/tda_data/core50_350x350 --name core50_350
                             bash run.sh features dtd
     features-run [streams.py run options]
                       TDA on saved features (stream orders, many seeds) in one GPU job, e.g.
