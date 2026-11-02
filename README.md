@@ -62,8 +62,10 @@ TDA_replication/
 | change or extend the method (new cache rule, new stream order, new variant) | `tda_replica.py` |
 | change the report or add a table | `experiments.py` (section *Report*) |
 | make plots or analyse what happens along the stream | `notebooks/analysis.ipynb` |
-| compute CLIP features of a dataset once (e.g. CORe50) | nothing: `bash run.sh features core50 --root <folder>` (`extract_features.py`) |
+| compute CLIP features of a dataset once (e.g. CORe50) | nothing: `bash run.sh features core50 --root <folder>` (`extract_features.py`); add `--name core50_350` to keep a second version (e.g. 350x350) next to the first, then use `--dataset core50_350` in `streams.py` |
 | run TDA on saved features with other stream orders (S0-S3) or many seeds | nothing: `python streams.py run ...`, table with `python streams.py summary` |
+| M2 (per-class mean in the positive cache), oracle (cache with true labels), CLIP temporal smoothing | nothing: `--mode tda,m2,oracle,clip,smooth --window 5,15,30` in `streams.py run` (code: `tda_replica.py` `apply_mode`, `DynamicCache.positive_logits`; `streams.py` `run_smoothing`) |
+| understand what happens inside the stream (cold start, sessions, error runs, cache content) | run with `--trace`, then `python analyze_traces.py --dataset core50 --backbone RN50` (plots + `summary.md` in `results/analysis/`) |
 
 Created when you run it, and ignored by git: `TDA/` (official repository), `results/` (everything to look at),
 `logs/` (full logs), and the datasets folder (`~/tda_data` by default).
