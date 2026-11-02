@@ -15,6 +15,11 @@ as experiments.py: REPO_DIR, RESULTS_DIR):
          --sessions 3,7,10 / --every 5 use a subset of the CORe50 frames (the same for every order)
          --trace saves the per-image trace (cache size, correct, ...) in RESULTS_DIR/feature_traces/
 
+  Modes: tda | pos | neg | clip | m2 (positive cache = per-class mean) | oracle (positive cache with
+  the TRUE labels: upper bound) | smooth (no cache: CLIP probabilities averaged over the last
+  --window frames, a classic video baseline). --trace also records what is inside the cache
+  (session/object share, purity), read by analyze_traces.py.
+
   python streams.py summary [--dataset core50]
       -> table with mean accuracy over seeds and 95% CI; also RESULTS_DIR/feature_summary.csv
 
@@ -179,9 +184,44 @@ def make_cfg(args, mode=None):
     mode = mode or args.mode
     cfg = get_config_file(os.path.join(REPO_DIR, "configs"), args.cfg_like or args.dataset)
     tda.apply_overrides(cfg, tda.parse_overrides(args.overrides))
-    cfg["positive"]["enabled"] &= mode in ("tda", "pos")
-    cfg["negative"]["enabled"] &= mode in ("tda", "neg")
+    tda.apply_mode(cfg, mode if mode in tda.MODES else "clip")
     return cfg
+
+
+def cache_stats_hook(data, idx):
+    """
+    Adds to every trace row what is inside the POSITIVE cache at that moment, compared with the
+    current frame (columns used by analyze_traces.py):
+      session, object, frame   of the current frame (CORe50; -1 if unknown)
+      pos_true_frac            share of cached samples whose pseudo-label is the true label (cache purity)
+      pos_same_session_frac    share of cached samples from the same session as the current frame
+      pos_same_object_frac     share of cached samples of the same object instance (same video)
+      pos_top_class_frac       share of the cache taken by its largest class (1 = one class fills it)
+      pos_true_class_n         cached samples whose pseudo-label is the current frame's true class
+    """
+    labels = data["labels"].tolist()
+    meta = data["meta"]
+    sess, obj, frame = (meta.get(k) for k in ("session", "object", "frame"))
+
+    def hook(step, row, pos_cache, neg_cache):
+        r = idx[step]
+        row["session"] = sess[r] if sess else -1
+        row["object"] = obj[r] if obj else -1
+        row["frame"] = frame[r] if frame else -1
+        tags = pos_cache.tags()                              # {pseudo class: [steps]}
+        rows = [(c, idx[t]) for c, ts in tags.items() for t in ts]
+        n = len(rows)
+        if n == 0:
+            row.update(pos_true_frac="", pos_same_session_frac="", pos_same_object_frac="",
+                       pos_top_class_frac="", pos_true_class_n=0)
+            return
+        row["pos_true_frac"] = round(sum(labels[j] == c for c, j in rows) / n, 4)
+        row["pos_same_session_frac"] = round(sum(sess[j] == sess[r] for _, j in rows) / n, 4) if sess else ""
+        row["pos_same_object_frac"] = round(sum(obj[j] == obj[r] for _, j in rows) / n, 4) if obj else ""
+        row["pos_top_class_frac"] = round(max(len(ts) for ts in tags.values()) / n, 4)
+        row["pos_true_class_n"] = len(tags.get(labels[r], []))
+
+    return hook
 
 
 def run_on_features(cfg, data, idx, device, limit=None, trace=None):
@@ -190,7 +230,41 @@ def run_on_features(cfg, data, idx, device, limit=None, trace=None):
     if device == "cpu":                     # fp16 maths is slow/partial on CPU; results differ in the last digits
         feats, text_weights = feats.float(), text_weights.float()
     stream = FeatureStream(feats, data["labels"], idx)
-    return tda.run_tda(cfg, stream, SavedFeatureEncoder(), text_weights, device, limit=limit, trace=trace)
+    hook = cache_stats_hook(data, idx) if trace is not None else None
+    return tda.run_tda(cfg, stream, SavedFeatureEncoder(), text_weights, device, limit=limit,
+                       trace=trace, step_hook=hook)
+
+
+@torch.no_grad()
+def run_smoothing(data, idx, window, device, limit=None, trace=None):
+    """
+    Classic video baseline, no cache: CLIP zero-shot on every frame, then the prediction is the
+    class with the highest probability AVERAGED over the last `window` frames of the stream
+    (the current one included; fewer at the start). window=1 is plain CLIP.
+    It only uses the continuity of the stream, so it can only help when consecutive frames
+    share the class (S3, video orders); in a shuffled stream it should hurt.
+    """
+    start = time.time()
+    idx = idx[:limit] if limit else idx
+    feats, text_weights = data["feats"][idx].to(device), data["text_weights"].to(device)
+    if device == "cpu":
+        feats, text_weights = feats.float(), text_weights.float()
+    feats = feats / feats.norm(dim=-1, keepdim=True)        # same CLIP logits as tda_replica.clip_forward
+    logits = 100.0 * feats @ text_weights
+    probs = logits.float().softmax(1)                        # averaging in fp32
+    csum = torch.cat([torch.zeros_like(probs[:1]), probs.cumsum(0)])
+    steps = torch.arange(len(idx), device=probs.device)
+    lo = (steps - window + 1).clamp(min=0)
+    smooth = (csum[steps + 1] - csum[lo]) / (steps + 1 - lo).unsqueeze(1)
+    labels = data["labels"][idx].to(device)
+    pred, clip_pred = smooth.argmax(1), logits.argmax(1)
+    correct, clip_correct = (pred == labels), (clip_pred == labels)
+    if trace is not None:
+        for s in range(len(idx)):
+            trace.append({"step": s, "label": int(labels[s]), "clip_pred": int(clip_pred[s]), "pred": int(pred[s]),
+                          "clip_correct": int(clip_correct[s]), "correct": int(correct[s])})
+    return {"acc": 100.0 * float(correct.float().mean()), "clip_acc": 100.0 * float(clip_correct.float().mean()),
+            "n": len(idx), "seconds": round(time.time() - start, 1), "window": window}
 
 
 def split_list(text, cast=str):
@@ -213,13 +287,22 @@ def run(args):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     sessions = split_list(args.sessions, int) if args.sessions else None
     data = select_rows(load_features(args.dataset, args.backbone), sessions, args.every)
+    # args.dataset is the feature-file name (e.g. core50_350); base is the real dataset (core50).
+    # The stream orders are seeded with base, so core50 and core50_350 see the same streams.
+    base = data.get("dataset", args.dataset)
+    if base == "core50" and not args.cfg_like:
+        raise SystemExit("core50 has no official config: pass e.g. --cfg-like caltech101")
     overrides = tda.parse_overrides(args.overrides)
     out_file = os.path.join(RESULTS_DIR, "feature_runs.jsonl")
     os.makedirs(RESULTS_DIR, exist_ok=True)
     done = {r.get("key") for r in read_jsonl(out_file)}
     print(f"{args.dataset} {args.backbone}: {len(data['labels'])} frames, device {device}", flush=True)
 
-    for mode in split_list(args.mode):
+    modes = []                                   # "smooth" -> one mode per window: smooth-w5, smooth-w15, ...
+    for m in split_list(args.mode):
+        modes += [f"smooth-w{w}" for w in split_list(args.window, int)] if m == "smooth" else [m]
+
+    for mode in modes:
         cfg = make_cfg(args, mode)
         for order in split_list(args.order):
             for rho in (split_list(args.rho, float) if order == "s1" else [None]):
@@ -229,13 +312,20 @@ def run(args):
                                       args.cfg_like or args.dataset, args.sessions, args.every, args.limit])
                     if key in done:
                         continue
-                    idx = stream_order(data, order, seed, args.dataset, rho=rho)
+                    idx = stream_order(data, order, seed, base, rho=rho)
                     trace = [] if args.trace else None
-                    res = run_on_features(cfg, data, idx, device, limit=args.limit, trace=trace)
+                    if mode.startswith("smooth-w"):
+                        res = run_smoothing(data, idx, int(mode[len("smooth-w"):]), device,
+                                            limit=args.limit, trace=trace)
+                    else:
+                        res = run_on_features(cfg, data, idx, device, limit=args.limit, trace=trace)
                     name = tda.run_name("features", args.dataset, args.backbone, mode, seed, tag, overrides)
                     if trace:
+                        meta = data["meta"]
                         for row, i in zip(trace, idx):   # saved row of each step (session, object, frame)
                             row["row"] = i
+                            for k in ("session", "object", "frame"):
+                                row.setdefault(k, meta[k][i] if k in meta else -1)
                         tda.write_trace(os.path.join(RESULTS_DIR, "feature_traces", name + ".csv.gz"), trace)
                     res.update({"key": key, "impl": "features", "dataset": args.dataset,
                                 "backbone": args.backbone, "mode": mode, "order": order, "rho": rho,
@@ -250,30 +340,40 @@ def run(args):
 
 
 def summary(args):
-    """Table: mean accuracy over seeds with a 95% confidence interval, per dataset/backbone/mode/order."""
+    """
+    Table: mean accuracy over seeds with a 95% confidence interval. One row per
+    dataset / backbone / config (--cfg-like + --set) / frames used (--sessions, --every, --limit) /
+    mode / order, so runs with different settings are never averaged together.
+    """
     rows = read_jsonl(os.path.join(RESULTS_DIR, "feature_runs.jsonl"))
     groups = {}
     for r in rows:
         if args.dataset and r["dataset"] != args.dataset:
             continue
         tag = r["order"] + (f" rho={r['rho']}" if r.get("rho") is not None else "")
-        k = (r["dataset"], r["backbone"], r["mode"], tag, json.dumps(r.get("overrides") or {}))
+        ov = r.get("overrides") or {}
+        config = (r.get("cfg_like") or r["dataset"]) + "".join(f" {k}={v}" for k, v in sorted(ov.items()))
+        frames = "all" if not r.get("sessions") else f"sessions {r['sessions']}"
+        if (r.get("every") or 1) > 1:
+            frames += f", 1/{r['every']}"
+        if r.get("limit"):
+            frames += f", first {r['limit']}"
+        k = (r["dataset"], r["backbone"], config, frames, r["mode"], tag)
         groups.setdefault(k, []).append(r)
     if not groups:
         raise SystemExit("No runs in feature_runs.jsonl yet: launch `python streams.py run ...` first.")
-    lines = ["| Dataset | Backbone | Mode | Order | Overrides | Seeds | Acc (mean) | 95% CI ± | CLIP | TDA − CLIP |",
-             "|---|---|---|---|---|---:|---:|---:|---:|---:|"]
-    csv_rows = ["dataset,backbone,mode,order,overrides,seeds,acc_mean,ci95,clip_mean,gain"]
+    lines = ["| Dataset | Backbone | Config | Frames | Mode | Order | Seeds | Acc (mean) | 95% CI ± | CLIP | TDA − CLIP |",
+             "|---|---|---|---|---|---|---:|---:|---:|---:|---:|"]
+    csv_rows = ["dataset,backbone,config,frames,mode,order,seeds,acc_mean,ci95,clip_mean,gain"]
     for k in sorted(groups):
         accs = [r["acc"] for r in groups[k]]
         clips = [r["clip_acc"] for r in groups[k]]
         n, m, c = len(accs), sum(accs) / len(accs), sum(clips) / len(clips)
         sd = (sum((a - m) ** 2 for a in accs) / (n - 1)) ** 0.5 if n > 1 else 0.0
         ci = 1.96 * sd / n ** 0.5                     # normal approximation over seeds
-        ov = "" if k[4] == "{}" else k[4]
-        lines.append(f"| {k[0]} | {k[1]} | {k[2]} | {k[3]} | {ov} | {n} | {m:.2f} | {ci:.2f} | {c:.2f} | {m - c:+.2f} |")
-        csv_rows.append(",".join([k[0], k[1], k[2], k[3], '"' + ov.replace('"', "'") + '"',
-                                  str(n), f"{m:.4f}", f"{ci:.4f}", f"{c:.4f}", f"{m - c:.4f}"]))
+        lines.append(f"| {' | '.join(k)} | {n} | {m:.2f} | {ci:.2f} | {c:.2f} | {m - c:+.2f} |")
+        csv_rows.append(",".join(['"' + x.replace('"', "'") + '"' for x in k] +
+                                 [str(n), f"{m:.4f}", f"{ci:.4f}", f"{c:.4f}", f"{m - c:.4f}"]))
     print("\n".join(lines))
     with open(os.path.join(RESULTS_DIR, "feature_summary.csv"), "w") as f:
         f.write("\n".join(csv_rows) + "\n")
@@ -287,9 +387,15 @@ def main():
     p = argparse.ArgumentParser(description="TDA on saved CLIP features, different stream orders")
     sub = p.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("run")
-    s.add_argument("--dataset", required=True, help="core50, or a dataset with saved features (dtd, eurosat, ...)")
+    s.add_argument("--dataset", required=True,
+                   help="name of the saved features: core50 (128x128), core50_350, dtd, eurosat, ...")
     s.add_argument("--backbone", required=True, choices=["RN50", "ViT-B/16"])
-    s.add_argument("--mode", default="tda", help=f"one or more, comma-separated, from {tda.MODES}, e.g. tda,clip")
+    s.add_argument("--mode", default="tda",
+                   help=f"one or more, comma-separated, from {tda.MODES + ['smooth']}, e.g. tda,clip,m2,oracle. "
+                        "m2 = per-class mean in the positive cache; oracle = positive cache with true labels; "
+                        "smooth = CLIP predictions averaged over the last --window frames (no cache)")
+    s.add_argument("--window", default="5,15,30",
+                   help="smooth only: window(s) in frames, comma-separated (default 5,15,30)")
     s.add_argument("--order", default="s0", help=f"one or more, comma-separated, from {ORDERS}, e.g. s0,s1,s2,s3")
     s.add_argument("--rho", default="0.9",
                    help="s1 only: probability that the label persists; several allowed, e.g. 0.5,0.9,0.95")
@@ -311,12 +417,10 @@ def main():
 
     if args.cmd == "summary":
         return summary(args)
-    bad = [x for x in split_list(args.mode) if x not in tda.MODES] + \
+    bad = [x for x in split_list(args.mode) if x not in tda.MODES + ["smooth"]] + \
           [x for x in split_list(args.order) if x not in ORDERS]
     if bad:
         raise SystemExit(f"unknown mode/order {bad}; modes {tda.MODES}, orders {ORDERS}")
-    if args.dataset == "core50" and not args.cfg_like:
-        raise SystemExit("core50 has no official config: pass e.g. --cfg-like caltech101")
     os.chdir(REPO_DIR)                      # same working directory as tda_replica.py runs
     run(args)
 
