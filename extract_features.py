@@ -9,8 +9,12 @@ Commands (run from the TDA_replication folder; paths come from the same environm
 as experiments.py: REPO_DIR, DATA_DIR, RESULTS_DIR). Both need a GPU.
 
   python extract_features.py extract --dataset dtd    --backbone RN50
-  python extract_features.py extract --dataset core50 --backbone RN50 --root /path/to/core50_350x350
-      -> RESULTS_DIR/features/<dataset>__<backbone>.pt
+  python extract_features.py extract --dataset core50 --backbone RN50 --root /path/to/core50_350x350 \
+                                     --name core50_350
+      -> RESULTS_DIR/features/<name>__<backbone>.pt   (<name> = --name, default the dataset name)
+         --name keeps two versions of the same dataset apart (e.g. core50 = 128x128, core50_350);
+         streams.py then uses it as --dataset core50_350. An existing file is never overwritten
+         unless --overwrite is given.
          core50 options: --sessions 3,7,10 (only these sessions), --every 5 (1 frame out of 5)
 
   python extract_features.py check   --dataset dtd    --backbone RN50
@@ -109,6 +113,10 @@ class Core50(torch.utils.data.Dataset):
 # --------------------------------------------------------------------------------------
 @torch.no_grad()
 def extract(args):
+    path = feature_path(args.name or args.dataset, args.backbone)
+    if os.path.isfile(path) and not args.overwrite:
+        raise SystemExit(f"{path} already exists. Use --name <other name> to keep both "
+                         f"(e.g. --name core50_350), or --overwrite to replace it.")
     model, preprocess = clip.load(args.backbone)
     model.eval()
     if args.dataset == "core50":
@@ -134,11 +142,12 @@ def extract(args):
         labels.append(target)
     text_weights = tda.build_text_classifier(classnames, templates, model, "cuda").cpu()
 
-    out = {"dataset": args.dataset, "backbone": args.backbone,
-           "feats": torch.cat(feats), "labels": torch.cat(labels).long(), "meta": meta,
+    # "dataset" is the real dataset (it seeds the stream orders, so core50 and core50_350 get the
+    # same streams for the same frames); "name" is the file name chosen with --name.
+    out = {"dataset": args.dataset, "name": args.name or args.dataset, "backbone": args.backbone,
+           "root": args.root, "feats": torch.cat(feats), "labels": torch.cat(labels).long(), "meta": meta,
            "classnames": classnames, "templates": templates, "text_weights": text_weights,
            "batch_size": args.batch_size, "time": time.strftime("%Y-%m-%d %H:%M")}
-    path = feature_path(args.dataset, args.backbone)
     os.makedirs(FEATURE_DIR, exist_ok=True)
     torch.save(out, path)
     print(f"saved {path}: {tuple(out['feats'].shape)} features, {len(classnames)} classes, "
@@ -204,6 +213,10 @@ def main():
             s.add_argument("--batch-size", type=int, default=1,
                            help="1 (default) gives features bit-identical to the batch-size-1 TDA stream")
             s.add_argument("--workers", type=int, default=4)
+            s.add_argument("--name", default=None,
+                           help="name of the saved feature file (default: the dataset name), "
+                                "e.g. core50_350 to keep it apart from the 128x128 core50 features")
+            s.add_argument("--overwrite", action="store_true", help="replace an existing feature file")
         else:
             s.add_argument("--mode", default="tda", choices=tda.MODES)
             s.add_argument("--seed", type=int, default=1)
