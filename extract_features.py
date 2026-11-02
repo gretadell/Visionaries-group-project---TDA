@@ -17,6 +17,11 @@ as experiments.py: REPO_DIR, DATA_DIR, RESULTS_DIR). Both need a GPU.
          unless --overwrite is given.
          core50 options: --sessions 3,7,10 (only these sessions), --every 5 (1 frame out of 5)
 
+  python extract_features.py extract --dataset stream51 --backbone RN50 --root /path/to/Stream-51
+      -> Stream-51 training split (videos in temporal order), frames cropped to the object box as
+         in the official loader; --no-crop keeps the full frame. --every 5 keeps 1 frame out of 5.
+         Saved meta: video (clip id), frame, clip_num, video_num.
+
   python extract_features.py check   --dataset dtd    --backbone RN50
       -> week-1 gate: TDA on images (tda_replica.py) vs TDA on the saved features, same stream.
          PASS = 0 different predictions. (tda_replica.py already equals the official code.)
@@ -95,6 +100,63 @@ def find_core50_frames(root, sessions, every):
     return rows
 
 
+# --------------------------------------------------------------------------------------
+# Stream-51 images (Roady et al., CVPRW 2020; https://github.com/tyler-hayes/Stream-51)
+# --------------------------------------------------------------------------------------
+def find_stream51_frames(root, every):
+    """
+    Frames of the Stream-51 TRAINING split (the only one with videos in temporal order; TDA does
+    not train, so it is just our test stream). Read from root/Stream-51_meta_train.json, whose
+    entries are [class_id, clip_num, video_num, frame_num, (img_shape,) bbox, file_loc], e.g.
+    file_loc = "train/24-whale/043_036_000.jpg" (folder "24-whale" -> class 23, name "whale").
+    A new video (clip) starts at every frame_num == 0, as in the official StreamDataset.py.
+    """
+    meta_file = os.path.join(root, "Stream-51_meta_train.json")
+    if not os.path.isfile(meta_file):
+        raise SystemExit(f"{meta_file} not found: --root must be the Stream-51 folder that contains it.")
+    with open(meta_file) as f:
+        entries = json.load(f)
+    names, rows, video = {}, [], -1
+    for e in entries:
+        class_id, frame, bbox, file_loc = int(e[0]), int(e[3]), e[-2], e[-1]
+        if frame == 0 or video < 0:
+            video += 1
+        folder = file_loc.replace("\\", "/").split("/")[-2]           # "24-whale"
+        names.setdefault(class_id, re.sub(r"^\d+[-_ ]*", "", folder).replace("_", " ").replace("-", " "))
+        if every > 1 and frame % every:
+            continue
+        rows.append({"path": os.path.join(root, file_loc), "label": class_id, "video": video, "frame": frame,
+                     "clip_num": int(e[1]), "video_num": int(e[2]), "bbox": [float(b) for b in bbox]})
+    classnames = [names[c] for c in sorted(names)]
+    if sorted(names) != list(range(len(names))):
+        raise SystemExit("Stream-51 class ids are not 0..N-1: unexpected metadata format.")
+    return rows, classnames
+
+
+def crop_to_bbox(img, bbox, ratio=1.10):
+    """Same crop as the official StreamDataset.py: bbox = [x_max, x_min, y_max, y_min], enlarged by `ratio`."""
+    cw, ch = bbox[0] - bbox[1], bbox[2] - bbox[3]
+    cx, cy = int(bbox[1] + cw / 2), int(bbox[3] + ch / 2)
+    box = (max(int(cx - cw * ratio / 2), 0), max(int(cy - ch * ratio / 2), 0),
+           min(int(cx + cw * ratio / 2), img.size[0]), min(int(cy + ch * ratio / 2), img.size[1]))
+    return img.crop(box)
+
+
+class Stream51(torch.utils.data.Dataset):
+    def __init__(self, rows, preprocess, crop=True):
+        self.rows, self.preprocess, self.crop = rows, preprocess, crop
+
+    def __len__(self):
+        return len(self.rows)
+
+    def __getitem__(self, i):
+        r = self.rows[i]
+        img = Image.open(r["path"]).convert("RGB")
+        if self.crop:
+            img = crop_to_bbox(img, r["bbox"])
+        return self.preprocess(img), r["label"]
+
+
 class Core50(torch.utils.data.Dataset):
     def __init__(self, rows, preprocess):
         self.rows, self.preprocess = rows, preprocess
@@ -124,6 +186,12 @@ def extract(args):
         rows = find_core50_frames(args.root or os.path.join(DATA_DIR, "core50"), sessions, args.every)
         dataset, classnames, templates = Core50(rows, preprocess), CORE50_CLASSES, CORE50_TEMPLATES
         meta = {k: [r[k] for r in rows] for k in ("path", "session", "object", "frame")}
+    elif args.dataset == "stream51":
+        rows, classnames = find_stream51_frames(args.root or os.path.join(DATA_DIR, "stream51"), args.every)
+        dataset, templates = Stream51(rows, preprocess, crop=not args.no_crop), CORE50_TEMPLATES
+        meta = {k: [r[k] for r in rows] for k in ("path", "video", "frame", "clip_num", "video_num")}
+        print(f"stream51: {len(rows)} frames, {len(set(meta['video']))} videos, {len(classnames)} classes, "
+              f"{'full frames' if args.no_crop else 'cropped to the object box'}")
     else:
         loader, classnames, templates = build_test_data_loader(args.dataset, DATA_DIR + "/", preprocess)
         dataset = loader.dataset
@@ -209,7 +277,11 @@ def main():
         if name == "extract":
             s.add_argument("--root", default=None, help="CORe50 folder containing s1..s11 (default DATA_DIR/core50)")
             s.add_argument("--sessions", default=None, help="CORe50 sessions to keep, e.g. 3,7,10 (default all)")
-            s.add_argument("--every", type=int, default=1, help="CORe50: keep 1 frame out of N (default all)")
+            s.add_argument("--every", type=int, default=1,
+                           help="CORe50 / Stream-51: keep 1 frame out of N (default all)")
+            s.add_argument("--no-crop", action="store_true",
+                           help="Stream-51: use the full frame instead of the official crop to the object box "
+                                "(save it with e.g. --name stream51_full)")
             s.add_argument("--batch-size", type=int, default=1,
                            help="1 (default) gives features bit-identical to the batch-size-1 TDA stream")
             s.add_argument("--workers", type=int, default=4)
