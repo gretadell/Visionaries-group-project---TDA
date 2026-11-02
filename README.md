@@ -66,6 +66,8 @@ TDA_replication/
 | run TDA on saved features with other stream orders (S0-S3) or many seeds | nothing: `python streams.py run ...`, table with `python streams.py summary` |
 | M2 (per-class mean in the positive cache), oracle (cache with true labels), CLIP temporal smoothing | nothing: `--mode tda,m2,oracle,clip,smooth --window 5,15,30` in `streams.py run` (code: `tda_replica.py` `apply_mode`, `DynamicCache.positive_logits`; `streams.py` `run_smoothing`) |
 | understand what happens inside the stream (cold start, sessions, error runs, cache content) | run with `--trace`, then `python analyze_traces.py --dataset core50 --backbone RN50` (plots + `summary.md` in `results/analysis/`) |
+| run the stream experiments on Colab from saved features (no dataset download) | `notebooks/streams_colab.ipynb`: copy the feature files to `MyDrive/TDA_replication/results/features/`, edit Settings, Run all |
+| Stream-51 (second sequential dataset) | `bash run.sh features stream51 --root <folder with Stream-51_meta_train.json>` (frames cropped to the object box as in the official loader; `--no-crop --name stream51_full` for full frames), then orders `s0,s1,instance,class_instance,class_iid` |
 
 Created when you run it, and ignored by git: `TDA/` (official repository), `results/` (everything to look at),
 `logs/` (full logs), and the datasets folder (`~/tda_data` by default).
