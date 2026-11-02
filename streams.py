@@ -278,6 +278,14 @@ def read_jsonl(path):
         return [json.loads(line) for line in f if line.strip()]
 
 
+def latest_runs(rows):
+    """One line per run (same key): the latest one, e.g. the rerun made with --trace."""
+    last = {}
+    for r in rows:
+        last[r.get("key") or id(r)] = r
+    return list(last.values())
+
+
 def run(args):
     """
     One TDA run for every combination of --mode x --order x --rho (s1 only) x seed;
@@ -295,7 +303,9 @@ def run(args):
     overrides = tda.parse_overrides(args.overrides)
     out_file = os.path.join(RESULTS_DIR, "feature_runs.jsonl")
     os.makedirs(RESULTS_DIR, exist_ok=True)
-    done = {r.get("key") for r in read_jsonl(out_file)}
+    # runs already done are skipped; with --trace, a run done earlier WITHOUT a trace is redone
+    # (summary() and analyze_traces.py keep only the latest line of each run)
+    done = {r.get("key") for r in read_jsonl(out_file) if r.get("trace") or not args.trace}
     print(f"{args.dataset} {args.backbone}: {len(data['labels'])} frames, device {device}", flush=True)
 
     modes = []                                   # "smooth" -> one mode per window: smooth-w5, smooth-w15, ...
@@ -345,7 +355,7 @@ def summary(args):
     dataset / backbone / config (--cfg-like + --set) / frames used (--sessions, --every, --limit) /
     mode / order, so runs with different settings are never averaged together.
     """
-    rows = read_jsonl(os.path.join(RESULTS_DIR, "feature_runs.jsonl"))
+    rows = latest_runs(read_jsonl(os.path.join(RESULTS_DIR, "feature_runs.jsonl")))
     groups = {}
     for r in rows:
         if args.dataset and r["dataset"] != args.dataset:
