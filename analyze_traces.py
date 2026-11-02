@@ -62,6 +62,10 @@ def load_traces(args):
         raise SystemExit(f"{path} not found: run `python streams.py run ... --trace` first.")
     with open(path) as f:
         runs = [json.loads(line) for line in f if line.strip()]
+    last = {}                                   # one line per run: the latest (e.g. a rerun with --trace)
+    for r in runs:
+        last[r.get("key") or id(r)] = r
+    runs = list(last.values())
     modes = set(args.modes.split(",")) if args.modes else None
     orders = set(args.orders.split(",")) if args.orders else None
     out, configs = [], set()
