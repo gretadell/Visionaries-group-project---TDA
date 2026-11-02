@@ -59,8 +59,20 @@ from tqdm import tqdm
 import clip  # the repo's own copy of OpenAI CLIP (identical API)
 from utils import build_test_data_loader, get_config_file  # official data pipeline
 
-MODES = ["tda", "pos", "neg", "clip"]          # full TDA / positive only / negative only / zero-shot CLIP
+# full TDA / positive only / negative only / zero-shot CLIP /
+# m2: full TDA, positive cache read out as a per-class MEAN (x shot capacity) instead of a sum /
+# oracle: full TDA, positive cache filled with the TRUE labels (upper bound, not a method)
+MODES = ["tda", "pos", "neg", "clip", "m2", "oracle"]
 ORDERS = ["official", "random", "sorted"]
+
+
+def apply_mode(cfg, mode):
+    """Turns a config into the given mode (in place). Used by tda_replica.py and streams.py."""
+    cfg["positive"]["enabled"] &= mode in ("tda", "pos", "m2", "oracle")
+    cfg["negative"]["enabled"] &= mode in ("tda", "neg", "m2", "oracle")
+    cfg["positive"]["aggregate"] = "mean" if mode == "m2" else "sum"
+    cfg["positive"]["oracle"] = mode == "oracle"
+    return cfg
 
 
 # --------------------------------------------------------------------------------------
@@ -134,8 +146,9 @@ class DynamicCache:
     """
     One priority queue per pseudo-class, ordered by entropy (lowest first), with a
     maximum of `capacity` entries per class ("shot capacity", k in the paper).
-    Entry = (key feature [1, C], entropy, value), where value is the class index for
-    the positive cache or the probability map [1, N] for the negative cache.
+    Entry = (key feature [1, C], entropy, value, tag), where value is the class index for
+    the positive cache or the probability map [1, N] for the negative cache, and tag is the
+    stream step of the sample (only used for analysis: which samples are in the cache).
     """
 
     def __init__(self, capacity):
@@ -148,9 +161,9 @@ class DynamicCache:
     def __len__(self):
         return sum(len(q) for q in self.queues.values())
 
-    def update(self, pred, feat, entropy, value):
+    def update(self, pred, feat, entropy, value, tag=None):
         """Insert a sample. Returns "add", "replace" or "" (sample discarded), for the trace."""
-        entry = (feat, entropy, value)
+        entry = (feat, entropy, value, tag)
         queue = self.queues.get(pred)
         if queue is None:                       # first sample predicted as this class
             self.queues[pred] = [entry]
@@ -168,10 +181,14 @@ class DynamicCache:
     def _keys_values(self):
         keys, values = [], []
         for cls in sorted(self.queues):         # same key order as the official code
-            for feat, _, value in self.queues[cls]:
+            for feat, _, value, _ in self.queues[cls]:
                 keys.append(feat)
                 values.append(value)
         return torch.cat(keys, dim=0).t(), values
+
+    def tags(self):
+        """{class: [tag, ...]} of the samples currently stored (for analysis)."""
+        return {cls: [e[3] for e in q] for cls, q in self.queues.items()}
 
     @staticmethod
     def _adapt(feat, keys, values, alpha, beta):
@@ -179,9 +196,24 @@ class DynamicCache:
         affinity = feat @ keys
         return alpha * (((-1) * (beta - beta * affinity)).exp() @ values)
 
-    def positive_logits(self, feat, num_classes, alpha, beta):
+    def positive_logits(self, feat, num_classes, alpha, beta, aggregate="sum"):
+        """
+        aggregate="sum"  (TDA): the vote of class c is the SUM of the affinities with its cached
+                         samples, so a class with more samples in the cache gets more votes.
+        aggregate="mean" (M2):  the MEAN affinity of class c, times the shot capacity k:
+                         vote_c = k * (sum_c / n_c), with n_c the cached samples of class c.
+                         A full class (n_c = k) gets exactly the TDA vote; a class with fewer
+                         samples is no longer penalised for it. Multiplying by k keeps the overall
+                         scale of the cache logits equal to TDA, so M2 is not just a smaller alpha.
+        """
         keys, labels = self._keys_values()
-        one_hot = F.one_hot(torch.tensor(labels, dtype=torch.int64), num_classes=num_classes)
+        labels = torch.tensor(labels, dtype=torch.int64)
+        one_hot = F.one_hot(labels, num_classes=num_classes).float()
+        if aggregate == "mean":
+            counts = one_hot.sum(0).clamp(min=1)            # cached samples per class
+            one_hot = one_hot * (self.capacity / counts)
+        elif aggregate != "sum":
+            raise ValueError(f"unknown aggregate {aggregate!r}")
         one_hot = one_hot.to(device=feat.device, dtype=feat.dtype)
         return self._adapt(feat, keys, one_hot, alpha, beta)
 
@@ -229,9 +261,17 @@ def top1(logits, target):
 
 
 @torch.no_grad()
-def run_tda(cfg, loader, model, text_weights, device, verify=False, limit=None, trace=None):
-    """Runs the stream once. `trace`, if a list, receives one dict per test image."""
+def run_tda(cfg, loader, model, text_weights, device, verify=False, limit=None, trace=None, step_hook=None):
+    """
+    Runs the stream once. `trace`, if a list, receives one dict per test image.
+    `step_hook(step, row, pos_cache, neg_cache)`, if given, is called for every image after the
+    caches are updated and may add columns to the trace row (e.g. what is inside the cache).
+    cfg["positive"]["aggregate"] = "mean" gives M2; cfg["positive"]["oracle"] = True fills the
+    positive cache with the true label instead of CLIP's pseudo-label (see apply_mode()).
+    """
     pos_cfg, neg_cfg = cfg["positive"], cfg["negative"]
+    aggregate = pos_cfg.get("aggregate", "sum")
+    oracle = pos_cfg.get("oracle", False)
     num_classes = text_weights.size(1)
     pos_cache = DynamicCache(pos_cfg["shot_capacity"])
     neg_cache = DynamicCache(neg_cfg["shot_capacity"])
@@ -253,13 +293,14 @@ def run_tda(cfg, loader, model, text_weights, device, verify=False, limit=None, 
 
         pos_action = neg_action = ""
         if pos_cfg["enabled"]:
-            pos_action = pos_cache.update(pred, feat, ent, pred)
+            pos_label = int(target.view(-1)[0]) if oracle else pred      # oracle: true label
+            pos_action = pos_cache.update(pos_label, feat, ent, pos_label, tag=i)
         if neg_cfg["enabled"] and neg_cfg["entropy_threshold"]["lower"] < norm_ent < neg_cfg["entropy_threshold"]["upper"]:
-            neg_action = neg_cache.update(pred, feat, ent, prob)
+            neg_action = neg_cache.update(pred, feat, ent, prob, tag=i)
 
         logits = clip_logits.clone()
         if pos_cfg["enabled"] and pos_cache:
-            logits += pos_cache.positive_logits(feat, num_classes, pos_cfg["alpha"], pos_cfg["beta"])
+            logits += pos_cache.positive_logits(feat, num_classes, pos_cfg["alpha"], pos_cfg["beta"], aggregate)
         if neg_cfg["enabled"] and neg_cache:
             logits -= neg_cache.negative_logits(
                 feat, neg_cfg["alpha"], neg_cfg["beta"],
@@ -274,6 +315,8 @@ def run_tda(cfg, loader, model, text_weights, device, verify=False, limit=None, 
                           "entropy": round(norm_ent, 4), "pos_update": pos_action, "neg_update": neg_action,
                           "pos_size": len(pos_cache), "neg_size": len(neg_cache),
                           "pos_classes": len(pos_cache.queues)})
+            if step_hook is not None:
+                step_hook(i, trace[-1], pos_cache, neg_cache)
 
         if verify:
             o_feat, o_clip, o_loss, o_prob, o_pred = official_clip_logits(images, model, text_weights)
@@ -387,8 +430,7 @@ def main():
     for name in args.datasets.split("/"):
         cfg = get_config_file(args.config, name)
         apply_overrides(cfg, overrides)
-        cfg["positive"]["enabled"] &= args.mode in ("tda", "pos")
-        cfg["negative"]["enabled"] &= args.mode in ("tda", "neg")
+        apply_mode(cfg, args.mode)
         print(f"\n=== {name} | {args.backbone} | mode={args.mode} seed={args.seed} order={args.order} "
               f"overrides={overrides} | cfg={cfg}", flush=True)
 
