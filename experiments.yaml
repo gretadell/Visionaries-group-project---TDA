@@ -47,7 +47,7 @@ paper_ood:
   datasets: ood
   backbones: [RN50, ViT-B/16]
   official: true
-  time: "48:00:00"
+  time: "24:00:00"   # student HPC limit is 24 h per job
 
 ablation_components:
   description: Fig. 3 - contribution of each cache (CLIP only, positive only, negative only, both)
@@ -68,7 +68,7 @@ ablation_shots:
       positive.shot_capacity: [1, 2, 3, 4, 5, 6]
     - mode: [neg]
       negative.shot_capacity: [1, 2, 3, 4, 5, 6]
-  time: "48:00:00"
+  time: "24:00:00"   # student HPC limit is 24 h per job
 
 # ---------------------------------------------------------------- new experiments
 # Examples to copy and edit. They are not part of `bash run.sh all`: run them by name.
