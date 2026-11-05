@@ -37,6 +37,8 @@ cat <<'EOF'
                       extract CLIP features of dataset NAME once (one job per backbone),
                       e.g.  bash run.sh features core50 --root ~/tda_data/core50_350x350 --name core50_350
                             bash run.sh features dtd
+    features-icwt --root FOLDER [extract_icwt.py options]
+                      extract CLIP features of iCubWorld Transformations (one job per backbone)
     features-run [streams.py run options]
                       TDA on saved features (stream orders, many seeds) in one GPU job, e.g.
                       bash run.sh features-run --dataset core50 --backbone RN50 --cfg-like caltech101 \
@@ -162,6 +164,17 @@ case "$cmd" in
             echo "  features $name $bb: job $id"
         done
         echo "Follow with:  bash run.sh status      Output:  results/features/" ;;
+
+    features-icwt)   # iCubWorld Transformations: one GPU job per backbone (extract_icwt.py)
+        shift || true
+        [[ $# -gt 0 ]] || { echo "Usage: bash run.sh features-icwt --root FOLDER [--every 4] [--camera left]"; exit 1; }
+        require_ready
+        for bb in $BACKBONES; do
+            id=$(JOB_CMD=_features submit "tda-icwt-${bb//\//-}" "$TIME_DEFAULT" "" \
+                 extract_icwt.py --backbone "$bb" "$@")
+            echo "  features icwt $bb: job $id"
+        done
+        echo "Follow with:  bash run.sh status      Output:  results/features/icwt__*.pt" ;;
 
     features-run)
         shift || true
