@@ -1,0 +1,49 @@
+dataset,backbone,config,frames,mode,order,seeds,acc_mean,ci95,clip_mean,gain
+"ucf101_video_long","RN50","ucf101","all","clip","s0",10,63.2803,0.0000,63.2803,0.0000
+"ucf101_video_long","RN50","ucf101","all","clip","s1 rho=0.5",10,63.2803,0.0000,63.2803,0.0000
+"ucf101_video_long","RN50","ucf101","all","clip","s1 rho=0.9",10,63.2803,0.0000,63.2803,0.0000
+"ucf101_video_long","RN50","ucf101","all","clip","s2",10,63.2803,0.0000,63.2803,0.0000
+"ucf101_video_long","RN50","ucf101","all","clip","s3",10,63.2803,0.0000,63.2803,0.0000
+"ucf101_video_long","RN50","ucf101","all","m2","s0",10,66.2669,0.0835,63.2803,2.9866
+"ucf101_video_long","RN50","ucf101","all","m2","s1 rho=0.5",10,66.2492,0.1137,63.2803,2.9689
+"ucf101_video_long","RN50","ucf101","all","m2","s1 rho=0.9",10,66.0667,0.0911,63.2803,2.7863
+"ucf101_video_long","RN50","ucf101","all","m2","s2",10,67.6708,0.3828,63.2803,4.3904
+"ucf101_video_long","RN50","ucf101","all","m2","s3",10,66.5754,0.3671,63.2803,3.2950
+"ucf101_video_long","RN50","ucf101","all","oracle","s0",10,70.0676,0.0550,63.2803,6.7873
+"ucf101_video_long","RN50","ucf101","all","oracle","s1 rho=0.5",10,70.0901,0.1014,63.2803,6.8097
+"ucf101_video_long","RN50","ucf101","all","oracle","s1 rho=0.9",10,70.1713,0.1106,63.2803,6.8910
+"ucf101_video_long","RN50","ucf101","all","oracle","s2",10,74.5360,0.4970,63.2803,11.2557
+"ucf101_video_long","RN50","ucf101","all","oracle","s3",10,74.4140,0.5922,63.2803,11.1336
+"ucf101_video_long","RN50","ucf101","all","smooth-w15","instance",10,58.7348,0.0699,63.2803,-4.5455
+"ucf101_video_long","RN50","ucf101","all","smooth-w15","s3",10,58.7024,0.0474,63.2803,-4.5779
+"ucf101_video_long","RN50","ucf101","all","smooth-w5","instance",10,63.6037,0.0231,63.2803,0.3234
+"ucf101_video_long","RN50","ucf101","all","smooth-w5","s3",10,63.5834,0.0186,63.2803,0.3031
+"ucf101_video_long","RN50","ucf101","all","tda","s0",10,66.2565,0.0843,63.2803,2.9762
+"ucf101_video_long","RN50","ucf101","all","tda","s1 rho=0.5",10,66.2388,0.1128,63.2803,2.9585
+"ucf101_video_long","RN50","ucf101","all","tda","s1 rho=0.9",10,66.0919,0.0921,63.2803,2.8116
+"ucf101_video_long","RN50","ucf101","all","tda","s2",10,67.6632,0.3664,63.2803,4.3829
+"ucf101_video_long","RN50","ucf101","all","tda","s3",10,66.6590,0.3461,63.2803,3.3786
+"ucf101_video_long","ViT-B/16","ucf101","all","clip","s0",10,67.4493,0.0000,67.4493,0.0000
+"ucf101_video_long","ViT-B/16","ucf101","all","clip","s1 rho=0.5",10,67.4493,0.0000,67.4493,0.0000
+"ucf101_video_long","ViT-B/16","ucf101","all","clip","s1 rho=0.9",10,67.4493,0.0000,67.4493,0.0000
+"ucf101_video_long","ViT-B/16","ucf101","all","clip","s2",10,67.4493,0.0000,67.4493,0.0000
+"ucf101_video_long","ViT-B/16","ucf101","all","clip","s3",10,67.4493,0.0000,67.4493,0.0000
+"ucf101_video_long","ViT-B/16","ucf101","all","m2","s0",10,71.0764,0.1108,67.4493,3.6270
+"ucf101_video_long","ViT-B/16","ucf101","all","m2","s1 rho=0.5",10,71.0604,0.0905,67.4493,3.6111
+"ucf101_video_long","ViT-B/16","ucf101","all","m2","s1 rho=0.9",10,70.9515,0.1130,67.4493,3.5022
+"ucf101_video_long","ViT-B/16","ucf101","all","m2","s2",10,71.9551,0.2476,67.4558,4.4993
+"ucf101_video_long","ViT-B/16","ucf101","all","m2","s3",10,71.2058,0.1750,67.4601,3.7456
+"ucf101_video_long","ViT-B/16","ucf101","all","oracle","s0",10,74.3896,0.1016,67.4601,6.9294
+"ucf101_video_long","ViT-B/16","ucf101","all","oracle","s1 rho=0.5",10,74.3159,0.0516,67.4601,6.8557
+"ucf101_video_long","ViT-B/16","ucf101","all","oracle","s1 rho=0.9",10,74.4615,0.0675,67.4601,7.0013
+"ucf101_video_long","ViT-B/16","ucf101","all","oracle","s2",10,77.9382,0.6894,67.4601,10.4780
+"ucf101_video_long","ViT-B/16","ucf101","all","oracle","s3",10,77.8224,0.3888,67.4601,10.3622
+"ucf101_video_long","ViT-B/16","ucf101","all","smooth-w15","instance",10,61.1265,0.0497,67.4601,-6.3336
+"ucf101_video_long","ViT-B/16","ucf101","all","smooth-w15","s3",10,61.1373,0.0580,67.4601,-6.3228
+"ucf101_video_long","ViT-B/16","ucf101","all","smooth-w5","instance",10,66.8851,0.0124,67.4601,-0.5750
+"ucf101_video_long","ViT-B/16","ucf101","all","smooth-w5","s3",10,66.8808,0.0186,67.4601,-0.5793
+"ucf101_video_long","ViT-B/16","ucf101","all","tda","s0",10,71.0569,0.1114,67.4493,3.6076
+"ucf101_video_long","ViT-B/16","ucf101","all","tda","s1 rho=0.5",10,71.0477,0.0925,67.4493,3.5983
+"ucf101_video_long","ViT-B/16","ucf101","all","tda","s1 rho=0.9",10,70.9600,0.1108,67.4493,3.5106
+"ucf101_video_long","ViT-B/16","ucf101","all","tda","s2",10,71.9221,0.2524,67.4493,4.4727
+"ucf101_video_long","ViT-B/16","ucf101","all","tda","s3",10,71.2056,0.1798,67.4493,3.7562
