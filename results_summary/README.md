@@ -10,7 +10,7 @@ Last update: 10 November 2026.
 | 3 | CORe50 128×128 (cropped) | Chiara | `3_core50_128/` | ✅ done (no traces) |
 | 4 | CORe50 350×350 (full frame) | Nick | `4_core50_350/` | ✅ done (no traces) |
 | 5 | iCubWorld Transformations (iCWT) | Nick | `5_icwt/` | ⏳ in progress |
-| 6 | UCF101 as a video stream | Greta | `6_ucf101/` | ⏳ in progress |
+| 6 | UCF101 as a video stream | Greta | `6_ucf101/` | ✅ done (10 seeds, with traces) |
 | — | Stream-51 | — | — | ❌ dropped: official download link is dead, no mirror found |
 
 **Common settings (CORe50, iCWT):** TDA on pre-extracted CLIP features (`extract_features.py`, `streams.py`), backbones RN50 and ViT-B/16, TDA config `caltech101`, accuracy = top-1 (%), ± = 95% CI over seeds.
