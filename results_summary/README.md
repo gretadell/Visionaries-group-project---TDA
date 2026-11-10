@@ -131,9 +131,31 @@ Smoothing (CI ≤ ±0.03):
 
 iCubWorld Transformations, cropped version, left camera, 20 categories, 2 relative sessions per object (first/second recording day). Protocol agreed for the two confirmation datasets (iCWT, UCF101): `--every 8`, **10 seeds with `--trace`**, smoothing windows 5 and 15. Full-frame version (~23 GB) only if needed for the background effect.
 
-## 6. UCF101 — in progress (Greta)
+## 6. UCF101 as a video stream (Greta)
 
-UCF101 as a video stream on Colab, clips of 48 frames at 10 fps, same protocol as iCWT.
+UCF101 test list 1 · **10 videos per class**, spread over groups (1,010 videos) · **48 consecutive frames at 10 fps** per video (≈5 s around the middle) · 46,294 frames · 101 classes · groups g01–g07 used as sessions (same actor and background) · official UCF101 TDA config (`ucf101`) and prompt *"a photo of a person doing {}."* · **10 seeds with `--trace`** · Colab T4. Files: `6_ucf101/`.
+
+| Order | RN50 TDA | RN50 M2 | RN50 Oracle | ViT TDA | ViT M2 | ViT Oracle |
+|---|---:|---:|---:|---:|---:|---:|
+| *CLIP (all orders)* | *63.28* | | | *67.45* | | |
+| S0 | 66.26 ±0.08 | 66.27 ±0.08 | 70.07 ±0.06 | 71.06 ±0.11 | 71.08 ±0.11 | 74.39 ±0.10 |
+| S1 ρ=0.5 | 66.24 ±0.11 | 66.25 ±0.11 | 70.09 ±0.10 | 71.05 ±0.09 | 71.06 ±0.09 | 74.32 ±0.05 |
+| S1 ρ=0.9 | 66.09 ±0.09 | 66.07 ±0.09 | 70.17 ±0.11 | 70.96 ±0.11 | 70.95 ±0.11 | 74.46 ±0.07 |
+| S2 | 67.66 ±0.37 | 67.67 ±0.38 | 74.54 ±0.50 | 71.92 ±0.25 | 71.96 ±0.25 | 77.94 ±0.69 |
+| S3 | 66.66 ±0.35 | 66.58 ±0.37 | 74.41 ±0.59 | 71.21 ±0.18 | 71.21 ±0.18 | 77.82 ±0.39 |
+
+Smoothing (CI ≤ ±0.07):
+
+| Window | RN50 S3 | RN50 instance | ViT S3 | ViT instance |
+|---|---:|---:|---:|---:|
+| 5 | 63.58 | 63.60 | 66.88 | 66.89 |
+| 15 | 58.70 | 58.73 | 61.14 | 61.13 |
+
+**From the traces** (RN50; ViT is similar):
+
+- **S2 doubles the share of the cache coming from the current session** (33% vs 16% in S0), and the gain is largest at the start of the stream (+7.5 vs +1.8 points over CLIP in the first 5% of frames).
+- **Cache purity drops in temporal order:** 87% correct pseudo-labels in S0, 81% in S3.
+- **Error runs in S3 come mostly from the video itself:** 72% of TDA errors are in runs of 10+ frames, but CLIP alone is already at 69%.
 
 ---
 
