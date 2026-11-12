@@ -1,17 +1,21 @@
 # Results summary — TDA on sequential streams
 
 One place for every result we have, who produced it, with which settings, and what is still missing.
-Last update: 10 November 2026.
+Last update: 12 November 2026.
 
 | # | Experiment | Who | Where | Status |
 |---|---|---|---|---|
 | 1 | Reproduction of the paper (Tables 1 and 3) | Greta (code, Colab), Chiara (HPC) | `1_reproduction/` | ✅ done (ImageNet, Stanford Cars, SUN397 missing) |
 | 2 | Hyper-parameter search on CORe50 | Chiara | `2_hparam_search/` | ✅ done → **caltech101** frozen |
-| 3 | CORe50 128×128 (cropped) | Chiara | `3_core50_128/` | ✅ done (no traces) |
-| 4 | CORe50 350×350 (full frame) | Nick | `4_core50_350/` | ✅ done (no traces) |
-| 5 | iCubWorld Transformations (iCWT) | Nick | `5_icwt/` | ⏳ in progress |
-| 6 | UCF101 as a video stream | Greta | `6_ucf101/` | ✅ done (10 seeds, with traces) |
+| 3 | CORe50 128×128 (cropped) | Chiara | `3_core50_128/` | ✅ done, 50 seeds, paired tests (no traces) |
+| 4 | CORe50 350×350 (full frame) | Nick | `4_core50_350/` | ✅ done, 50 seeds, paired tests, traces (10 seeds) |
+| 5 | iCubWorld Transformations (iCWT) | Nick | `5_icwt/` | ✅ done, 10 seeds with traces, paired tests |
+| 6 | UCF101 as a video stream | Greta | `6_ucf101/` | ✅ done, 10 seeds with traces, paired tests |
 | — | Stream-51 | — | — | ❌ dropped: official download link is dead, no mirror found |
+
+**Statistics.** Besides the per-mode 95% CI, `paired_tests.py` (Nick) compares modes **seed by seed** (same order and same seed = exactly the same stream: paired bootstrap CI, sign test, paired t-test) and compares orders as **independent samples** (Welch). Files: `*_tests.md` in each folder.
+
+**Traces.** `analyze_traces.py` reads the per-frame traces (`--trace`) and reports cold start, error runs, cache purity, share of the cache from the current session and size of the largest class in the cache. Files: `analysis/<dataset>__<backbone>/` (summary table + 5 plots).
 
 **Common settings (CORe50, iCWT):** TDA on pre-extracted CLIP features (`extract_features.py`, `streams.py`), backbones RN50 and ViT-B/16, TDA config `caltech101`, accuracy = top-1 (%), ± = 95% CI over seeds.
 
@@ -125,11 +129,42 @@ Smoothing (CI ≤ ±0.03):
 | 15 | 53.35 | 53.37 | 61.38 | 61.40 |
 | 30 | 53.36 | 53.40 | 61.46 | 61.49 |
 
+**From the traces** (10 seeds with `--trace`, Nick; `4_core50_350/analysis/`):
+
+- **The cache is clean except in temporal order:** 98–99% correct pseudo-labels in S0/S1/S2 with both backbones, 92% (RN50) and 95% (ViT) in S3. So TDA falling below CLIP with RN50 on S0/S1 is **not** caused by wrong labels in the cache.
+- **S2 fills the cache with the current session:** 57% of the cache comes from the current session in S2, against 33% (= chance with 3 sessions) in S0.
+- **S2 helps most at the start of the stream:** gain over CLIP in the first 5% of frames +10.4 (S2) vs −2.7 (S0) with RN50; +11.6 vs +2.4 with ViT.
+- **The cache is perfectly balanced:** the largest class takes 10% of the cache (= 1/10 classes), which explains why M2 has almost nothing to correct.
+- **Error runs in S3 come from the video itself:** 78% of TDA errors are in runs of 10+ frames, but CLIP alone is already at 81% (RN50).
+
 ---
 
-## 5. iCWT — in progress (Nick)
+## 5. iCWT — iCubWorld Transformations (Nick)
 
-iCubWorld Transformations, cropped version, left camera, 20 categories, 2 relative sessions per object (first/second recording day). Protocol agreed for the two confirmation datasets (iCWT, UCF101): `--every 8`, **10 seeds with `--trace`**, smoothing windows 5 and 15. Full-frame version (~23 GB) only if needed for the background effect.
+Cropped version, left camera, 20 categories, one frame in eight · 2 sessions per object (first and second recording day, "relative" days so that every session contains all categories) · TDA config `caltech101` · **10 seeds with `--trace`** · smoothing windows 5 and 15 (same protocol as UCF101). Files: `5_icwt/`.
+
+| Order | RN50 TDA | RN50 M2 | RN50 Oracle | ViT TDA | ViT M2 | ViT Oracle |
+|---|---:|---:|---:|---:|---:|---:|
+| *CLIP (all orders)* | *50.15* | | | *65.20* | | |
+| S0 | 52.95 ±0.18 | 52.95 ±0.18 | 55.90 ±0.21 | 69.99 ±0.21 | 69.99 ±0.20 | 70.47 ±0.25 |
+| S1 ρ=0.5 | 53.20 ±0.34 | 53.20 ±0.34 | 56.08 ±0.33 | 70.32 ±0.22 | 70.32 ±0.22 | 70.84 ±0.23 |
+| S1 ρ=0.9 | 53.15 ±0.36 | 53.14 ±0.36 | 56.12 ±0.31 | 70.30 ±0.23 | 70.30 ±0.23 | 70.85 ±0.23 |
+| S2 | 52.94 ±0.15 | 52.94 ±0.15 | 56.08 ±0.11 | 70.31 ±0.15 | 70.32 ±0.15 | 70.73 ±0.17 |
+| S3 | 52.82 ±0.29 | 52.80 ±0.29 | 56.86 ±0.24 | 70.20 ±0.18 | 70.19 ±0.18 | 71.04 ±0.22 |
+
+Smoothing (CI ≤ ±0.10):
+
+| Window | RN50 S3 | RN50 instance | ViT S3 | ViT instance |
+|---|---:|---:|---:|---:|
+| 5 | 56.64 | 56.67 | 69.44 | 69.46 |
+| 15 | 51.43 | 51.55 | 60.71 | 60.95 |
+
+**From the traces:**
+
+- **Session order does not matter here:** S2 raises the share of the cache from the current session (67% vs 50% = chance with 2 sessions) but accuracy does not change (S2 − S0: −0.01 RN50, +0.32 ViT).
+- **The cache is noisier with RN50:** 89% correct pseudo-labels (S0), 86% in S3; ViT 98% and 97%. Accordingly the oracle gains +2.9 to +4.0 points with RN50 and only +0.4 to +0.8 with ViT.
+- **Short smoothing beats TDA with RN50:** averaging CLIP over 5 frames gives +6.5 over CLIP, against +2.7 for TDA (10/10 seeds). With ViT TDA stays ahead (−0.76 for smoothing). Longer windows (15) hurt.
+- **The cache is perfectly balanced** (largest class = 5% = 1/20 classes), as on CORe50.
 
 ## 6. UCF101 as a video stream (Greta)
 
@@ -161,26 +196,46 @@ Smoothing (CI ≤ ±0.07):
 
 ## Key findings so far
 
-1. **TDA helps a lot on cropped CORe50:** about +6 points over CLIP with both backbones, for every order.
-2. **Session context is what helps TDA.** S2 beats S0 by 0.8–1.3 points on the 128 crops and by **4–5 points on the 350 full frames**. S3 ≈ S2 and S1 ≈ S0: what matters is seeing one session (background, lighting) at a time, not the persistence of the object or of the label.
-3. **The background hurts CLIP a lot:** about −20 points from 128 to 350. On 350 with RN50, TDA on shuffled streams (S0, S1) is even **below CLIP** (49.8 vs 51.5).
-4. **M2 changes nothing** anywhere (max difference +0.26): the coverage bias it targets does not show up on CORe50.
-5. **Cache label noise matters only sometimes.** The oracle is close to TDA on the 128 crops except in S3 (+1.6 RN50, +0.8 ViT), clearly above TDA with ViT on 350 (+1.5 to +3.5), and *below* TDA with RN50 on 350 S0/S1/S2 (to be understood).
-6. **TDA beats video smoothing** clearly: smoothing gains at most +3.2 (RN50, 128) over CLIP.
+Differences from the paired tests (seed by seed for modes, Welch for orders). n.s. = 95% CI includes 0. (x/N) = seeds in which the first term is better.
+
+| Comparison | CORe50 128 RN50 | CORe50 128 ViT | CORe50 350 RN50 | CORe50 350 ViT | iCWT RN50 | iCWT ViT | UCF101 RN50 | UCF101 ViT |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| TDA − CLIP, S0 | +5.98 | +5.64 | **−1.75** (0/50) | +3.16 | +2.80 | +4.79 | +2.98 | +3.61 |
+| TDA: S2 − S0 | +0.83 | +1.27 | **+4.93** | **+4.23** | −0.01 n.s. | +0.32 | +1.41 | +0.87 |
+| TDA: S3 − S2 | −0.51 | −0.59 | −0.38 n.s. | −0.19 n.s. | −0.12 n.s. | −0.11 n.s. | −1.00 | −0.72 |
+| TDA: S1 (ρ=0.5) − S0 | −0.00 n.s. | +0.06 n.s. | −0.04 n.s. | +0.11 n.s. | +0.25 n.s. | +0.33 | −0.02 n.s. | −0.01 n.s. |
+| M2 − TDA, S2 | +0.01 | +0.00 | +0.08 | +0.26 | +0.00 | +0.00 | +0.01 | +0.03 |
+| Oracle − TDA, S3 | +1.61 | +0.80 | +0.73 | +3.54 | +4.04 | +0.84 | +7.76 | +6.62 |
+| best Smooth − TDA, S3 | −3.12 | −5.09 | −0.98 (23/50) | −5.62 | **+3.82** (10/10) | −0.76 | −3.08 | −4.32 |
+
+Seeds: 50 on CORe50, 10 on iCWT and UCF101.
+
+1. **TDA beats CLIP almost everywhere** (+2.7 to +7.4 points, in all or almost all seeds). The one exception is RN50 on CORe50 350 with shuffled streams (S0, S1), where TDA is **below CLIP in all 50 seeds**. Since the cache is 99% correct there, the cause is not label noise: more likely the cache retrieves neighbours by background rather than by object.
+2. **Session context helps, when sessions look different.** S2 beats S0 on CORe50 (about +1 on the 128 crops, **+4–5 on the 350 full frames**) and on UCF101 (+0.9 to +1.4); on iCWT it is ≈ 0 (−0.01 RN50, +0.32 ViT). In every dataset S2 fills the cache with the current session (CORe50 350: 57% vs 33%; UCF101: 33% vs 16%; iCWT: 67% vs 50%), but this only pays off where the background changes between sessions. On iCWT the two sessions are two recording days of the same setup, so they probably look alike (hypothesis to check).
+3. **Label persistence (S1) does not matter**, and **temporal order (S3) is never better than S2**: slightly worse on CORe50 128 and UCF101 (−0.5 to −1.0), not significant elsewhere.
+4. **M2 has (almost) nothing to correct.** The traces show a perfectly balanced cache (largest class = 1/number of classes). M2 − TDA is within ±0.1 everywhere, except a small systematic gain on CORe50 350 S2 (+0.26 with ViT).
+5. **Cache label noise matters in temporal order and on harder datasets.** Purity drops in S3 (CORe50 350: 99% → 92–95%; UCF101: 87% → 81%; iCWT RN50: 89% → 86%), and the oracle gains most in S3, on UCF101 (+6.6 to +7.8) and on iCWT with RN50 (+3 to +4). Open point: the oracle is **below** TDA with RN50 on CORe50 350 S0/S1/S2 (−2 to −3), which label noise cannot explain since TDA's cache is already 99% correct.
+6. **TDA does not create long error runs:** in S3 the share of errors in runs of 10+ frames is about the same for TDA and CLIP (CORe50 350: 78% vs 81%; UCF101: 72% vs 69%). Error runs come from the video itself.
+7. **Video smoothing is a strong baseline only with short windows on iCWT.** TDA beats smoothing on CORe50 and UCF101 (all seeds except CORe50 350 RN50), but on iCWT with RN50 averaging CLIP over 5 frames beats TDA by +3.8 (10/10 seeds). Windows of 15+ frames are worse than 5 on iCWT and UCF101.
+8. **S2 helps most at the start of the stream (cold start):** on CORe50 350 the gain over CLIP in the first 5% of frames is +10.4 in S2 against −2.7 in S0 (RN50); on UCF101 +7.5 against +1.8.
 
 ## Still to do
 
-- [ ] iCWT: extraction, final runs, summary, trace analysis (Nick)
-- [ ] UCF101: final runs and trace analysis (Greta)
-- [ ] CORe50 traces: sections 3 and 4 were run **without** `--trace`. Re-run with 10 seeds and `--trace` if we want cache-dynamics plots for CORe50 (Chiara for 128, Nick for 350?)
-- [ ] Explain the oracle results: why is the oracle below TDA in some settings?
-- [ ] Paired confidence intervals (bootstrap on seed-wise differences) for order comparisons, e.g. S2 − S0
+- [x] iCWT: final runs, paired tests, trace analysis (Nick)
+- [x] UCF101: final runs, paired tests, trace analysis (Greta)
+- [x] Paired tests on all four datasets (`paired_tests.py`)
+- [x] Traces on CORe50 350 (Nick, 10 seeds)
+- [ ] Traces on CORe50 128 (10 seeds with `--trace`), to have the cache analysis on both resolutions (Chiara)
+- [ ] Context subtraction (Greta's proposal): code, UCF101 pilot, then CORe50 and iCWT if the pilot works
+- [ ] Explain why the oracle is below TDA with RN50 on CORe50 350 (S0/S1/S2)
+- [ ] Explain why short smoothing beats TDA with RN50 on iCWT
+- [ ] iCWT full frame: now useful to test finding 2 (does adding the background bring the session effect back?)
 - [ ] Decide whether to add ImageNet / Stanford Cars to the reproduction (ask the professor)
-- [ ] Decide on iCWT full frame
 - [ ] Write the report
 
 ## Extension ideas (to discuss)
 
+0. **Context subtraction (proposed by Greta, in progress):** keep a running average of the last frames' features, which estimates the current context (background, lighting), and subtract it before the cache lookup. No labels, no training, one extra hyper-parameter (length of the average). Caveat: in S3 the recent frames are mostly the same object, so the average may estimate the object rather than the background.
 1. **Session-aware cache:** since session context drives the gains, try resetting the cache at each session change, or one cache per session.
 2. **Temporally consistent cache insertion:** add a frame to the cache only if neighbouring frames agree on the prediction, to keep repeated errors out in video streams (S3), where the oracle shows label noise costs accuracy. Close to Nick's M3.
 3. **When does TDA hurt?** On 350 RN50 S0, TDA is below CLIP: test a stricter confidence (entropy) threshold for cache insertion.
