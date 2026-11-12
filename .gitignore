@@ -1,0 +1,29 @@
+# Created when running the replication (never commit these)
+TDA/
+results/
+logs/
+tda_data/
+
+# Datasets, archives and model weights
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+*.pt
+*.pth
+*.mat
+
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Papers and local notes
+*.pdf
+
+# OS / editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
