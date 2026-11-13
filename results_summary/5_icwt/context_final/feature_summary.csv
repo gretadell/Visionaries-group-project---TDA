@@ -1,0 +1,13 @@
+dataset,backbone,config,frames,mode,order,seeds,acc_mean,ci95,clip_mean,gain
+"icwt","RN50","caltech101","all","tda","s0",10,52.9514,0.1822,50.1500,2.8014
+"icwt","RN50","caltech101","all","tda","s2",10,52.9383,0.1492,50.1500,2.7883
+"icwt","RN50","caltech101","all","tda","s3",10,52.8181,0.2929,50.1500,2.6682
+"icwt","RN50","caltech101 context.strength=0.5","all","ctxx-w300","s0",10,53.3970,0.1252,50.1500,3.2471
+"icwt","RN50","caltech101 context.strength=0.5","all","ctxx-w300","s2",10,53.4379,0.1122,50.1500,3.2879
+"icwt","RN50","caltech101 context.strength=0.5","all","ctxx-w300","s3",10,53.2217,0.1870,50.1500,3.0717
+"icwt","ViT-B/16","caltech101","all","tda","s0",10,69.9896,0.2055,65.2039,4.7857
+"icwt","ViT-B/16","caltech101","all","tda","s2",10,70.3134,0.1541,65.2039,5.1095
+"icwt","ViT-B/16","caltech101","all","tda","s3",10,70.1995,0.1763,65.2039,4.9956
+"icwt","ViT-B/16","caltech101 context.strength=0.5","all","ctxx-w300","s0",10,69.0602,0.1241,65.2039,3.8564
+"icwt","ViT-B/16","caltech101 context.strength=0.5","all","ctxx-w300","s2",10,69.2937,0.1039,65.2039,4.0899
+"icwt","ViT-B/16","caltech101 context.strength=0.5","all","ctxx-w300","s3",10,69.1495,0.1039,65.2039,3.9456
