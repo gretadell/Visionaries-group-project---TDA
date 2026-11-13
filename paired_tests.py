@@ -8,7 +8,9 @@ seed-to-seed noise cancels in the difference.
 
 Two kinds of comparison:
   paired    same order, same seed, two modes (or a mode vs CLIP on the same run):
-            M2 - TDA, Oracle - TDA, TDA - CLIP, Smooth - CLIP, Smooth - TDA (S3)
+            M2 - TDA, Oracle - TDA, TDA - CLIP, Smooth - CLIP, Smooth - TDA (S3), and any other
+            mode (e.g. ctx / ctxx context subtraction) - TDA and - CLIP. Config overrides such as
+            context.strength=0.5 are shown in the mode name, e.g. "ctxx-w300 [context.strength=0.5]".
   unpaired  two ORDERS of the same mode (S2 - S0, S3 - S2, S1 - S0): with the same seed the two orders
             are independent streams (the generator is seeded with the order name too), so pairing by
             seed would be wrong; they are compared as two independent samples (Welch).
@@ -16,6 +18,7 @@ Two kinds of comparison:
 Usage (needs numpy; uses scipy for the t-test p-values if available):
   python paired_tests.py results/feature_runs.jsonl --dataset core50_350
   python paired_tests.py FILE.jsonl --dataset icwt --config caltech101 --out icwt_tests.md
+  python paired_tests.py results/context_final_*/core50_350/feature_runs.jsonl --dataset core50_350
 Options:
   --config   only runs with this config, as in the summary table (e.g. caltech101)
   --frames   only runs on these frames, as in the summary table (e.g. "sessions 3,7,10")
@@ -46,15 +49,23 @@ except ImportError:          # p-values of the t-tests fall back to a normal app
 # Loading (same run selection as streams.py summary and analyze_traces.py)
 # --------------------------------------------------------------------------------------
 def describe(r):
-    """Same 'Config' and 'Frames' labels as `streams.py summary`."""
-    ov = r.get("overrides") or {}
-    config = (r.get("cfg_like") or r["dataset"]) + "".join(" {}={}".format(k, v) for k, v in sorted(ov.items()))
+    """Config (without overrides) and 'Frames' labels as in `streams.py summary`."""
+    config = r.get("cfg_like") or r["dataset"]
     frames = "all" if not r.get("sessions") else "sessions {}".format(r["sessions"])
     if (r.get("every") or 1) > 1:
         frames += ", 1/{}".format(r["every"])
     if r.get("limit"):
         frames += ", first {}".format(r["limit"])
     return config, frames
+
+
+def mode_label(r):
+    """Mode name; config overrides (e.g. context.strength=0.5) are appended so that runs with
+    different overrides stay separate but can still be compared with TDA on the same streams."""
+    ov = r.get("overrides") or {}
+    if not ov:
+        return r["mode"]
+    return r["mode"] + " [" + ",".join("{}={}".format(k, v) for k, v in sorted(ov.items())) + "]"
 
 
 def order_tag(r):
@@ -76,7 +87,7 @@ def load(path, dataset, config=None, frames=None):
         c, fr = describe(r)
         if (config and c != config) or (frames and fr != frames):
             continue
-        out[(r["backbone"], c, fr)][(r["mode"], order_tag(r))][r["seed"]] = r
+        out[(r["backbone"], c, fr)][(mode_label(r), order_tag(r))][r["seed"]] = r
     return out
 
 
@@ -182,9 +193,12 @@ def comparisons(groups, modes_across, boot, rs):
             if m in g and "tda" in g:
                 rows.append(("{} − TDA".format(name(m)), tag, "paired", paired(acc(g[m]), acc(g["tda"]), boot, rs)))
         for m in sorted(g):
-            if m == "clip":
+            if m in ("clip", "m2", "oracle", "pos", "neg"):
                 continue
-            if not m.startswith("smooth") and m != "tda":
+            if not m.startswith("smooth") and m != "tda":      # other methods, e.g. context subtraction
+                if "tda" in g:
+                    rows.append(("{} − TDA".format(name(m)), tag, "paired", paired(acc(g[m]), acc(g["tda"]), boot, rs)))
+                rows.append(("{} − CLIP".format(name(m)), tag, "paired", paired(acc(g[m]), clip_acc(g[m]), boot, rs)))
                 continue
             rows.append(("{} − CLIP".format(name(m)), tag, "paired", paired(acc(g[m]), clip_acc(g[m]), boot, rs)))
             if m.startswith("smooth") and "tda" in g:
