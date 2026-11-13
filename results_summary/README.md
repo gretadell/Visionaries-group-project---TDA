@@ -1,16 +1,17 @@
 # Results summary — TDA on sequential streams
 
 One place for every result we have, who produced it, with which settings, and what is still missing.
-Last update: 12 November 2026.
+Last update: 13 November 2026.
 
 | # | Experiment | Who | Where | Status |
 |---|---|---|---|---|
 | 1 | Reproduction of the paper (Tables 1 and 3) | Greta (code, Colab), Chiara (HPC) | `1_reproduction/` | ✅ done (ImageNet, Stanford Cars, SUN397 missing) |
-| 2 | Hyper-parameter search on CORe50 | Chiara | `2_hparam_search/` | ✅ done → **caltech101** frozen |
-| 3 | CORe50 128×128 (cropped) | Chiara | `3_core50_128/` | ✅ done, 50 seeds, paired tests (no traces) |
+| 2 | Hyper-parameter search on CORe50 | Chiara | section 2 of this README | ✅ done → **caltech101** frozen |
+| 3 | CORe50 128×128 (cropped) | Chiara | `3_core50_128/` | ✅ done, 50 seeds, paired tests, traces (10 seeds) |
 | 4 | CORe50 350×350 (full frame) | Nick | `4_core50_350/` | ✅ done, 50 seeds, paired tests, traces (10 seeds) |
 | 5 | iCubWorld Transformations (iCWT) | Nick | `5_icwt/` | ✅ done, 10 seeds with traces, paired tests |
 | 6 | UCF101 as a video stream | Greta | `6_ucf101/` | ✅ done, 10 seeds with traces, paired tests |
+| 7 | Context subtraction (our method) | Greta (code, UCF101), Nick (selection, 350, iCWT), Chiara (128) | section 7, `*/context_final/` | ⏳ parameters frozen; 128 done; 350, iCWT, UCF101 final runs to add |
 | — | Stream-51 | — | — | ❌ dropped: official download link is dead, no mirror found |
 
 **Statistics.** Besides the per-mode 95% CI, `paired_tests.py` (Nick) compares modes **seed by seed** (same order and same seed = exactly the same stream: paired bootstrap CI, sign test, paired t-test) and compares orders as **independent samples** (Welch). Files: `*_tests.md` in each folder.
@@ -106,6 +107,8 @@ Smoothing (CLIP averaged over the last N frames, CI ≤ ±0.03):
 | 15 | 75.60 | 75.63 | 80.40 | 80.41 |
 | 30 | 76.56 | 76.61 | 80.02 | 80.05 |
 
+**Traces** (10 seeds with `--trace`, Chiara): plots and summary tables in `3_core50_128/analysis/core50__RN50/` and `core50__ViT-B-16/`.
+
 ---
 
 ## 4. CORe50 350×350 (full frame, with background)
@@ -194,6 +197,46 @@ Smoothing (CI ≤ ±0.07):
 
 ---
 
+## 7. Context subtraction (our method)
+
+**Idea (Greta).** TDA's cache seems to retrieve neighbours by background rather than by object. Keep a running average of the last W frames' features, which estimates the current context (background, lighting), and subtract a fraction of it (strength) from each feature before the cache lookup. `ctx` = plain running mean; `ctxx` = running mean that excludes frames with the current pseudo-class. No labels, no training. Code: `context_cache.py`.
+
+**Pilots (exploratory, disclosed).** UCF101, ctx W300: −1.2 to −1.4 points vs TDA in S0/S2/S3. CORe50 350 RN50, ctx W300, 3 seeds, **on test sessions**: S0 54.23 (strength 1.0) / 53.24 (0.5) vs TDA 49.79 and CLIP 51.54; S2 56.46 / 61.39 vs TDA 54.73.
+
+**Parameter selection (Nick, `select_context_params.py`).** CORe50 350, RN50, **non-test sessions** 1,2,4,5,6,8,9,11, seeds 1–3, S0/S2/S3. Grid: ctx/ctxx × window 300/all × strength 0.5/1.0. Score = mean paired gain over TDA, equal weight on S0, S2, S3. Files: `7_context_selection/` (`selection_report.md`, `ranking.csv`, `frozen_context.json`).
+
+| Candidate | S0 gain | S2 gain | S3 gain | Score |
+|---|---:|---:|---:|---:|
+| **ctxx, W300, 0.5 (selected)** | +3.43 | +7.77 | +3.24 | **+4.81** |
+| ctx, W300, 0.5 | +3.29 | +7.86 | +2.05 | +4.40 |
+| ctx, W300, 1.0 | +3.59 | +6.40 | +0.73 | +3.57 |
+| ctxx, W300, 1.0 | +3.73 | +6.18 | +0.74 | +3.55 |
+| ctxx, Wall, 0.5 | +3.41 | +1.80 | +0.94 | +2.05 |
+| ctx, Wall, 0.5 | +3.29 | +1.65 | +0.84 | +1.93 |
+| ctxx, Wall, 1.0 | +3.72 | +1.18 | −0.02 | +1.63 |
+| ctx, Wall, 1.0 | +3.59 | +0.97 | −0.08 | +1.49 |
+
+All 8 candidates beat TDA on validation. In S0 a recent window and the whole past give the same gain (≈ +3.5): there the effect is a global centering of the features. In S2 the recent window (W300) gives +6 to +8 against +1 to +2 for Wall: there the session context really matters. In S3 excluding the current pseudo-class (ctxx) helps (+3.2 vs +2.1).
+
+**Frozen configuration:** `ctxx`, W = 300, strength = 0.5, transferred unchanged to every dataset and backbone. Final evaluation: test sessions, 10 seeds, S0/S2/S3, both backbones, TDA rerun on the same streams.
+
+| Dataset | Backbone | TDA S0 | ctxx S0 | TDA S2 | ctxx S2 | TDA S3 | ctxx S3 | CLIP |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| CORe50 128 | RN50 | 79.34 | 77.97 (**−1.37**) | 80.32 | 79.41 (**−0.91**) | 79.71 | 77.42 (**−2.29**) | 73.37 |
+| CORe50 128 | ViT-B/16 | 84.69 | 83.58 (**−1.11**) | 86.21 | 85.24 (**−0.97**) | 85.71 | 83.74 (**−1.97**) | 79.17 |
+| CORe50 350 | RN50 | | | | | | | 51.54 |
+| CORe50 350 | ViT-B/16 | | | | | | | 59.88 |
+| iCWT | RN50 | | | | | | | 50.15 |
+| iCWT | ViT-B/16 | | | | | | | 65.20 |
+| UCF101 | RN50 | | | | | | | 63.28 |
+| UCF101 | ViT-B/16 | | | | | | | 67.45 |
+
+Accuracy %, mean over 10 seeds; in brackets ctxx − TDA. CORe50 128 file: `3_core50_128/context_final/feature_summary.csv`. Empty rows: to be added (Nick: 350 and iCWT; Greta: UCF101).
+
+**CORe50 128:** context subtraction **lowers** TDA in every order (−0.9 to −2.3) while staying 4–6 points above CLIP. This fits the motivation: the 128 crops contain little background, so subtracting the "context" also removes part of the object. The method helps where background dominates (CORe50 350) and hurts where it does not (128 crops, UCF101 pilot).
+
+---
+
 ## Key findings so far
 
 Differences from the paired tests (seed by seed for modes, Welch for orders). n.s. = 95% CI includes 0. (x/N) = seeds in which the first term is better.
@@ -218,24 +261,25 @@ Seeds: 50 on CORe50, 10 on iCWT and UCF101.
 6. **TDA does not create long error runs:** in S3 the share of errors in runs of 10+ frames is about the same for TDA and CLIP (CORe50 350: 78% vs 81%; UCF101: 72% vs 69%). Error runs come from the video itself.
 7. **Video smoothing is a strong baseline only with short windows on iCWT.** TDA beats smoothing on CORe50 and UCF101 (all seeds except CORe50 350 RN50), but on iCWT with RN50 averaging CLIP over 5 frames beats TDA by +3.8 (10/10 seeds). Windows of 15+ frames are worse than 5 on iCWT and UCF101.
 8. **S2 helps most at the start of the stream (cold start):** on CORe50 350 the gain over CLIP in the first 5% of frames is +10.4 in S2 against −2.7 in S0 (RN50); on UCF101 +7.5 against +1.8.
+9. **Context subtraction helps only where the background dominates.** Selected on CORe50 350 non-test sessions (+4.8 over TDA on validation), it lowers TDA by 0.9–2.3 points on the CORe50 128 crops and by 1.2–1.4 in the UCF101 pilot. Final 350 / iCWT / UCF101 numbers to be added.
 
 ## Still to do
 
-- [x] iCWT: final runs, paired tests, trace analysis (Nick)
-- [x] UCF101: final runs, paired tests, trace analysis (Greta)
+- [x] iCWT, UCF101: final runs, paired tests, trace analysis
 - [x] Paired tests on all four datasets (`paired_tests.py`)
-- [x] Traces on CORe50 350 (Nick, 10 seeds)
-- [ ] Traces on CORe50 128 (10 seeds with `--trace`), to have the cache analysis on both resolutions (Chiara)
-- [ ] Context subtraction (Greta's proposal): code, UCF101 pilot, then CORe50 and iCWT if the pilot works
+- [x] Traces on CORe50 350 (Nick) and CORe50 128 (Chiara), 10 seeds
+- [x] Context subtraction: code, pilots, parameter selection on non-test sessions, CORe50 128 final runs
+- [ ] Context subtraction: final runs on CORe50 350 and iCWT (Nick), UCF101 (Greta); add them to section 7
+- [ ] Paired tests ctxx − TDA and ctxx − CLIP (extend `paired_tests.py`)
 - [ ] Explain why the oracle is below TDA with RN50 on CORe50 350 (S0/S1/S2)
-- [ ] Explain why short smoothing beats TDA with RN50 on iCWT
-- [ ] iCWT full frame: now useful to test finding 2 (does adding the background bring the session effect back?)
-- [ ] Decide whether to add ImageNet / Stanford Cars to the reproduction (ask the professor)
+- [ ] Explain why short smoothing beats TDA with RN50 on iCWT (smoothing with reset at video boundaries?)
+- [ ] iCWT full frame: would test whether adding background brings back the session effect
+- [x] Decide on ImageNet / Stanford Cars / SUN397: reproduction kept without them
 - [ ] Write the report
 
 ## Extension ideas (to discuss)
 
-0. **Context subtraction (proposed by Greta, in progress):** keep a running average of the last frames' features, which estimates the current context (background, lighting), and subtract it before the cache lookup. No labels, no training, one extra hyper-parameter (length of the average). Caveat: in S3 the recent frames are mostly the same object, so the average may estimate the object rather than the background.
+0. **Context subtraction (proposed by Greta, now section 7):** keep a running average of the last frames' features, which estimates the current context (background, lighting), and subtract it before the cache lookup. No labels, no training, one extra hyper-parameter (length of the average). Caveat: in S3 the recent frames are mostly the same object, so the average may estimate the object rather than the background.
 1. **Session-aware cache:** since session context drives the gains, try resetting the cache at each session change, or one cache per session.
 2. **Temporally consistent cache insertion:** add a frame to the cache only if neighbouring frames agree on the prediction, to keep repeated errors out in video streams (S3), where the oracle shows label noise costs accuracy. Close to Nick's M3.
 3. **When does TDA hurt?** On 350 RN50 S0, TDA is below CLIP: test a stricter confidence (entropy) threshold for cache insertion.

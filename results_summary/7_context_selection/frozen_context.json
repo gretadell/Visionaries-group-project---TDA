@@ -1,0 +1,164 @@
+{
+  "exact_tie_break": "ctx, then 300, then 0.5",
+  "final_test_executed": false,
+  "fingerprint": "08bc46b65967989bb07a8b0f576c252bf7049e9ce6a414c334a0ef12c07d2be4",
+  "prior_test_exploration": "W300 strengths 0.5 and 1.0 were previously explored on test sessions.",
+  "protocol": {
+    "backbone": "RN50",
+    "candidates": [
+      {
+        "mode": "ctx",
+        "strength": 0.5,
+        "window": 300
+      },
+      {
+        "mode": "ctx",
+        "strength": 1.0,
+        "window": 300
+      },
+      {
+        "mode": "ctx",
+        "strength": 0.5,
+        "window": "all"
+      },
+      {
+        "mode": "ctx",
+        "strength": 1.0,
+        "window": "all"
+      },
+      {
+        "mode": "ctxx",
+        "strength": 0.5,
+        "window": 300
+      },
+      {
+        "mode": "ctxx",
+        "strength": 1.0,
+        "window": 300
+      },
+      {
+        "mode": "ctxx",
+        "strength": 0.5,
+        "window": "all"
+      },
+      {
+        "mode": "ctxx",
+        "strength": 1.0,
+        "window": "all"
+      }
+    ],
+    "config": {
+      "negative": {
+        "alpha": 0.117,
+        "beta": 1.0,
+        "enabled": true,
+        "entropy_threshold": {
+          "lower": 0.2,
+          "upper": 0.5
+        },
+        "mask_threshold": {
+          "lower": 0.03,
+          "upper": 1.0
+        },
+        "shot_capacity": 2
+      },
+      "positive": {
+        "aggregate": "sum",
+        "alpha": 5.0,
+        "beta": 5.0,
+        "enabled": true,
+        "oracle": false,
+        "shot_capacity": 3
+      }
+    },
+    "cuda": "11.3",
+    "cudnn": 8302,
+    "dataset": "core50_350",
+    "device": "cuda",
+    "dtype": "torch.float16",
+    "every": 1,
+    "feature_sha256": "b5ab18c0e8fb4b6f279465909009bba22653c320e6e81b51105a2f192fd614af",
+    "frame_count": 120000,
+    "gpu": "NVIDIA A100 80GB PCIe MIG 3g.40gb",
+    "matmul_tf32": false,
+    "official_sources": {
+      "clip/__init__.py": "d7930eb290ebed432116795c91473200d098451a94c0aedd4ae0f934f97955e8",
+      "clip/clip.py": "211a6d253e70d2cd02a9d5d4b0709550e4b194b58c11d707c2bab6a8ddc8c222",
+      "clip/model.py": "3883290bf267deee719091f6454bf1edc3b97569c580b4dda7a8864f6b619040",
+      "clip/simple_tokenizer.py": "d1b09f10ed3d1e2c343619cb98cbfacb92363dd8607526a43aa7fe2d60d15bad",
+      "configs/caltech101.yaml": "b42d2798d8f7420adb9a2a1e7c6db88f1f00b4440be5a0f96ab99a2cb8d152a5",
+      "configs/dtd.yaml": "fcb5ce0a9f3f29831b1503ada45c889e264d645891b8f2b19fc42456149eebdc",
+      "configs/eurosat.yaml": "2a723ba78b84ffe6a7fde973494529f667abd91d6bc561314de262f8b4692830",
+      "configs/fgvc.yaml": "d6c9de009eca7595acce009cfb78d73503ddcc012232de6b7f3f5c97c5527c9a",
+      "configs/food101.yaml": "a6036056293c1c8e10e23cd78d18617e8e16e5d199350d9d418a032411bc3b58",
+      "configs/imagenet.yaml": "14841eaf1921f0c898df8e7cc83ed68c608c8e3a51119cbe434fb883d1acc2d7",
+      "configs/imagenet_a.yaml": "14841eaf1921f0c898df8e7cc83ed68c608c8e3a51119cbe434fb883d1acc2d7",
+      "configs/imagenet_r.yaml": "1a5dc5e8aded48f366cfb7d046422ac7054ac38aa1c96d4d57fbae23c13c00ab",
+      "configs/imagenet_s.yaml": "a3a0b7c8a55a9ced26ad6110f23c5e85d33218d4fd19f0a7d1c8d85536242800",
+      "configs/imagenet_v.yaml": "1a5dc5e8aded48f366cfb7d046422ac7054ac38aa1c96d4d57fbae23c13c00ab",
+      "configs/oxford_flowers.yaml": "b4ea7695fb6005d1e6ee06512a7c70921eabc1f4b704ddd908a5cbf7b01920ca",
+      "configs/oxford_pets.yaml": "039870f04470fa97b7bbfd9a98adda4001d2c876325a2a0dcbebd9fbcffc0e5c",
+      "configs/stanford_cars.yaml": "7508f0c1b726fbcd1740f6bcab73f954b861b68cd423de8bf2ca71d2c807a8ad",
+      "configs/sun397.yaml": "fcb5ce0a9f3f29831b1503ada45c889e264d645891b8f2b19fc42456149eebdc",
+      "configs/ucf101.yaml": "24fbec1fc1f546c04165d08e86fcb6d448243a3753a5ac0a56bc5ca258427fdc",
+      "datasets/__init__.py": "ad994a83989a32645e181fa5cb4e008a52b764d011705c425a444b96012a6813",
+      "datasets/augmix_ops.py": "41db4d8f490faa84e32694182a41e0a316c5bb31594daf8b88d5c76ec243093a",
+      "datasets/caltech101.py": "7e852ce404086afe7fe67e4edf65105a0f0dc248328d9f2049fd69fd3d3bf5d2",
+      "datasets/dtd.py": "76d6423d0254e64e1ec58993c56d1c4823c862900a9e1b3d50ecf950dc4c31ac",
+      "datasets/eurosat.py": "2e1b845ec892e19dc0469d0ef8998bbe06e47ed799bd0d87c597cf797adbc730",
+      "datasets/fgvc.py": "11ffbd7ad98bfb696d547726512beeedd2cb323edc786fa46cd95740a69ba280",
+      "datasets/food101.py": "0eff6a102b2bb9ef8e224df0a3bdd8b1b4f842dffdc79569fa579c3e44944b33",
+      "datasets/imagenet.py": "e485e41b57ecdbd1dfb479b48d6fb66897f7b48cd03fa5f9142505a71b4c7363",
+      "datasets/imagenet_a.py": "a4c4e7cdcab5b08c8940eef1076bcf8ceaefcd39a60efb4fd588dab78781c451",
+      "datasets/imagenet_r.py": "1376de5eb5e516a8e8095877c0ef05c0194a2cd033d61fb289aa8c0e5d33440a",
+      "datasets/imagenet_sketch.py": "b6d5cec9b98c4acccfd2be664b8b5551d414a3705295d15df9793a646bf2fdcd",
+      "datasets/imagenetv2.py": "94a8913b0168584ad727406b8815d1dd317e395b61f12a5771e54bf9ca26babf",
+      "datasets/oxford_flowers.py": "1f3eb2ac5bec90cf9d17deaf5192014001baa39770ffa3064c512b22ec0cc7a0",
+      "datasets/oxford_pets.py": "d175b38a1e02762af151ad5b52f60610ee41f8fc60e2d7d9aa9edf13712ba73a",
+      "datasets/stanford_cars.py": "cde2ee0d9072082205b5719497b910f08cca359d5bb10c97141a71bb83b9e9e1",
+      "datasets/sun397.py": "f4855b38e1643d7f53ce24786d778c5c267098d5fc84bd62b9dee82956fce20b",
+      "datasets/ucf101.py": "e0d6ba261b5401577b68a5280cfa7da677a0aa90d9060df5df0500d3039e553b",
+      "datasets/utils.py": "aeb420ea74fbab6d970ed8bc35173466e07b36ac3c29b583b9d90b76a9ae43fd",
+      "tda_runner.py": "b0048381b6036e68fb6c10cc65dc7c4ccce477646c7afc0d0bf8b877e0e90ae6",
+      "utils.py": "1c72070a39491b5e0d4517242ea7f4187a9975a04bc0fcf2765705b9f6a66df2"
+    },
+    "orders": [
+      "s0",
+      "s2",
+      "s3"
+    ],
+    "protocol_version": 1,
+    "python": "3.7.16",
+    "seeds": [
+      1,
+      2,
+      3
+    ],
+    "sessions": [
+      1,
+      2,
+      4,
+      5,
+      6,
+      8,
+      9,
+      11
+    ],
+    "sources": {
+      "context_cache.py": "29fe766bf90fead37f6be9bb73780be52b71d72a67991d73a01bdd020bdaa224",
+      "selector": "f50a80187a465fea7ae16b2f84e48c5c295dd06a96b610459bcaa3b478266d41",
+      "streams.py": "c7002406c43c3fb65a49d5956c4e170b9bf34dcefce757ebe03da2be0dc7a1f5",
+      "tda_replica.py": "3581c72d57ab438d94e8f07d74151c4cd57a2c97eb678f247c69f0a452e4188e"
+    },
+    "text_dtype": "torch.float16",
+    "torch": "1.12.1+cu113"
+  },
+  "selected": {
+    "mode": "ctxx",
+    "strength": 0.5,
+    "window": 300
+  },
+  "selection_rule": "Equal-weight mean of S0/S2/S3 paired gains over TDA; seeds 1-3.",
+  "validation_improved": true,
+  "validation_score": 4.814074074074075
+}
