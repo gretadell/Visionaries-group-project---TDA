@@ -228,8 +228,8 @@ All 8 candidates beat TDA on validation. In S0 a recent window and the whole pas
 | CORe50 350 | ViT-B/16 | 62.56 | 64.74 (**+2.18**) | 66.84 | 71.52 (**+4.69**) | 65.94 | 68.46 (**+2.52**) | 59.88 |
 | iCWT | RN50 | 52.95 | 53.40 (**+0.45**) | 52.94 | 53.44 (**+0.50**) | 52.82 | 53.22 (**+0.40**) | 50.15 |
 | iCWT | ViT-B/16 | 69.99 | 69.06 (**−0.93**) | 70.31 | 69.29 (**−1.02**) | 70.20 | 69.15 (**−1.05**) | 65.20 |
-| UCF101 | RN50 | | | | | | | 63.28 |
-| UCF101 | ViT-B/16 | | | | | | | 67.45 |
+| UCF101 | RN50 | 66.26 | 65.63 (**−0.63**) | 67.66 | 66.81 (**−0.85**) | 66.66 | 65.86 (**−0.80**) | 63.28 |
+| UCF101 | ViT-B/16 | 71.06 | 69.97 (**−1.09**) | 71.92 | 70.77 (**−1.15**) | 71.21 | 70.07 (**−1.14**) | 67.45 |
 
 Accuracy %, mean over 10 seeds; in brackets ctxx − TDA. Files: `3_core50_128/context_final/feature_summary.csv`, `4_core50_350/context_final/` and `5_icwt/context_final/` (`feature_summary.csv` + paired tests `paired_ctxx_*.md`). Empty rows: to be added (Greta: UCF101).
 
@@ -239,6 +239,7 @@ Accuracy %, mean over 10 seeds; in brackets ctxx − TDA. Files: `3_core50_128/c
 
 **iCWT (Nick):** small effect on these crops: +0.4 to +0.5 with RN50 (10/10 seeds), −0.9 to −1.1 with ViT-B/16 (0/10 seeds), still 3–4 points above CLIP. Same pattern as the 128 crops and the UCF101 pilot: the correction pays off in proportion to how much the background drives the cache retrieval.
 
+**UCF101 (Greta):** context subtraction **lowers** TDA in every order, including S1 (RN50 −0.6 to −0.9, ViT-B/16 −1.1 to −1.15), while staying 2.1–3.5 points above CLIP. The loss is the same in S0, where there is no session context, as in S2/S3, and the session gain is almost unchanged (S2 − S0: RN50 +1.18 vs +1.40 for TDA; ViT +0.80 vs +0.86). With strength 1 (pilot) the loss was larger (−1.2 to −1.4), so on UCF101 the loss grows with the strength. In UCF101 the background is evidence for the class (pool → swimming, field → horse riding), so subtracting it removes class information rather than session noise. Paired tests: `6_ucf101/context_final/paired_ctxx_ucf101.md`.
 ---
 
 ## Key findings so far
@@ -266,6 +267,7 @@ Seeds: 50 on CORe50, 10 on iCWT and UCF101.
 7. **Video smoothing is a strong baseline only with short windows on iCWT.** TDA beats smoothing on CORe50 and UCF101 (all seeds except CORe50 350 RN50), but on iCWT with RN50 averaging CLIP over 5 frames beats TDA by +3.8 (10/10 seeds). Windows of 15+ frames are worse than 5 on iCWT and UCF101.
 8. **S2 helps most at the start of the stream (cold start):** on CORe50 350 the gain over CLIP in the first 5% of frames is +10.4 in S2 against −2.7 in S0 (RN50); on UCF101 +7.5 against +1.8.
 9. **Context subtraction helps only where the background dominates.** Selected on CORe50 350 non-test sessions (+4.8 over TDA on validation), it lowers TDA by 0.9–2.3 points on the CORe50 128 crops and by 1.2–1.4 in the UCF101 pilot. On CORe50 350 (full frame) it raises TDA by +2.2 to +6.1 in every order with both backbones (10/10 seeds) and brings RN50 S0 above CLIP; on the iCWT crops the effect is small (+0.5 RN50, −1.0 ViT-B/16). UCF101 final numbers to be added.
+9-v2: 9. **Context subtraction helps only where the background dominates and is unrelated to the class.** Selected on CORe50 350 non-test sessions (+4.8 over TDA on validation), it raises TDA on CORe50 350 (full frame) by +2.2 to +6.1 in every order with both backbones (10/10 seeds) and brings RN50 S0 above CLIP. It lowers TDA on the CORe50 128 crops (−0.9 to −2.3), where there is little background, and on UCF101 (−0.6 to −1.15 in every order), where the background is evidence for the class; on the iCWT crops the effect is small (+0.5 RN50, −1.0 ViT-B/16). It always stays above CLIP.
 
 ## Still to do
 
