@@ -1,4 +1,4 @@
-# Retrieval analysis: which cache entries drive the prediction
+results_summary/8_retrieval_check/# Retrieval analysis: which cache entries drive the prediction
 
 | Dataset | Backbone | Order | Mode | Seeds | acc | session_share | session_mass | session_bias | class_share | class_mass | class_bias | trap_mass | object_mass | top1_session | top1_class | broken_session_mass | broken_class_mass | broken_trap_mass |
 |---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
