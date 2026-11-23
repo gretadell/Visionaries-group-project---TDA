@@ -1,395 +1,104 @@
-# TDA replication: Efficient Test-Time Adaptation of Vision-Language Models
+# Understanding Test-Time Adaptation on Sequential Visual Streams
 
-A reproduction of **Karmanov et al., *Efficient Test-Time Adaptation of Vision-Language Models*, CVPR 2024**
-([paper](https://openaccess.thecvf.com/content/CVPR2024/html/Karmanov_Efficient_Test-Time_Adaptation_of_Vision-Language_Models_CVPR_2024_paper.html),
-[official code](https://github.com/kdiAAA/TDA)) on CLIP ResNet-50 and ViT-B/16, built to be **extended** with
-new experiments, stream orders and variants of the method.
+**Visionaries group** · Chiaradonna · Dell'Amico · Mayda · Stavropoulou · Bocconi University, Computer Vision 2026
 
-It runs **two implementations side by side**:
+Training-free test-time adaptation (TTA) methods such as **TDA** ([Karmanov et al., CVPR 2024](https://openaccess.thecvf.com/content/CVPR2024/html/Karmanov_Efficient_Test-Time_Adaptation_of_Vision-Language_Models_CVPR_2024_paper.html))
+adapt CLIP at inference with a cache of confident past test samples, but they are evaluated on shuffled test sets.
+Cameras and robots see sequences instead. This repository contains everything behind our report:
 
-1. the **official code** of the authors, unmodified, cloned automatically;
-2. an **independent re-implementation**, [`tda_replica.py`](tda_replica.py), checked prediction by prediction
-   against the official code.
+1. an **exact re-implementation of TDA** (same predictions as the [official code](https://github.com/kdiAAA/TDA)) and the reproduction of the paper's Tables 1 and 3;
+2. a **sequential benchmark**: four stream orders (S0 shuffled, S1 class persistence, S2 session grouping, S3 session + video order) on CORe50 (crops and full frames), iCubWorld Transformations and UCF101, two CLIP backbones, 10-50 seeds, paired statistical tests;
+3. **cache diagnostics**: per-frame traces, a class-balanced read-out (M2), an oracle cache and a measurement of which cache entries drive each vote;
+4. **context subtraction (CTXX)**, our label-free, training-free correction that removes an online estimate of the scene from the cache features.
 
-It reproduces **Table 1** (out-of-distribution), **Table 3** (cross-domain) and the **ablations of Fig. 3 and 4**,
-and every experiment you add to [`experiments.yaml`](experiments.yaml) ends up in the same report.
-
-> **Status:** code complete and tested offline (equivalence of the method with the official functions on
-> synthetic data, job submission with a simulated SLURM, report and analysis on simulated results). The full GPU
-> runs have not been executed yet, so no result table is published here.
+**Main results.** Only session grouping helps TDA (up to +4.9 points). On shuffled full-frame CORe50, TDA falls below zero-shot
+CLIP although 99% of its cached labels are correct: its read-out votes by session rather than by object. CTXX improves TDA there by
++2.2 to +6.1 points in every order and with both backbones, and costs about one point where the background is part of the class.
+All numbers, tables and plots: [`results_summary/`](results_summary/README.md).
 
 ---
 
-## Contents
+## Repository layout
 
-- [Repository layout: which file does what](#repository-layout-which-file-does-what)
-- [Option A: SLURM cluster (recommended)](#option-a-slurm-cluster-recommended)
-- [Option B: Google Colab](#option-b-google-colab)
-- [Experiments](#experiments)
-- [Extending the method](#extending-the-method)
-- [Results and analysis](#results-and-analysis)
-- [All commands](#all-commands)
-- [Datasets](#datasets)
-- [How the method works](#how-the-method-works)
-- [Troubleshooting](#troubleshooting)
-- [Expected deviations from the paper](#expected-deviations-from-the-paper)
-- [Credits](#credits)
+The code is a flat set of scripts, grouped here by pipeline stage. Every script has a docstring at the top with its full usage.
 
----
+| Stage | File | What it does |
+|---|---|---|
+| **Data** | `prepare_data.py` | downloads and arranges the datasets of the paper (reproduction) |
+| | `extract_features.py` | computes CLIP image features once and saves them (CORe50 128 / 350, DTD, EuroSAT); equivalence check against images |
+| | `extract_icwt.py` | same for iCubWorld Transformations (sessions = relative recording day) |
+| | `extract_ucf101_video.py` | same for UCF101 as video: 48 consecutive frames at 10 fps per test video, read straight from the zip |
+| **Method** | `tda_replica.py` | TDA re-implemented from scratch (modes `tda`, `pos`, `neg`, `clip`, `m2`, `oracle`) |
+| | `context_cache.py` | context subtraction: modes `ctx-w<W>` / `ctxx-w<W>`, `--strength` |
+| **Experiments** | `experiments.py`, `experiments.yaml` | reproduction of the paper on images (Tables 1 and 3) and the report `results/REPORT.md` |
+| | `streams.py` | TDA on saved features under stream orders S0-S3 (+ Stream-51 style orders), many seeds; smoothing baseline; summary table |
+| | `select_context_params.py` | selection of the CTXX parameters on the **non-test** CORe50 sessions |
+| **Evaluation & analysis** | `paired_tests.py` | seed-by-seed comparisons (paired bootstrap CI, sign test, t-test; Welch across orders) |
+| | `analyze_traces.py` | per-frame trace analysis: cold start, error runs, cache purity, session share, class balance |
+| | `retrieval_analysis.py` | which cache entries drive the vote (same session vs same class), TDA vs CTXX |
+| **Running** | `run.sh`, `config.sh` | cluster entry point (SLURM): `bash run.sh <command>`; `config.sh` holds account, partition, paths |
+| | `retrieval_job.sh` | SLURM job for the retrieval analysis |
+| | `notebooks/` | Colab versions: `colab.ipynb` (reproduction), `streams_colab.ipynb` (stream runs from saved features), `ucf101_video_colab.ipynb` (UCF101 end to end), `analysis.ipynb` (plots, no GPU) |
+| **Results** | `results_summary/` | every result of the report: tables (CSV / Markdown), paired tests, trace plots, one folder per experiment |
 
-## Repository layout: which file does what
-
-```
-TDA_replication/
-├── README.md
-├── config.sh                cluster settings (SLURM account/partition, paths, resources)
-├── run.sh                   the only command on the cluster: bash run.sh <command>
-├── experiments.yaml         WHAT to run: one block per experiment
-├── experiments.py           runs the experiments, builds results/REPORT.md
-├── tda_replica.py           the METHOD (re-implementation of TDA)
-├── extract_features.py      CLIP features computed once (DTD, EuroSAT, CORe50) + equivalence check
-├── streams.py               TDA on the saved features: stream orders S0-S3, many seeds, summary table
-├── prepare_data.py          downloads and arranges the datasets
-└── notebooks/
-    ├── colab.ipynb          runs the same files on Google Colab
-    └── analysis.ipynb       plots and stream analysis (no GPU needed)
-```
-
-| I want to... | Edit |
-|---|---|
-| set up the cluster (account, partition, where datasets go) | `config.sh`, once |
-| run a new experiment (other datasets, seeds, stream orders, hyper-parameters) | `experiments.yaml` only |
-| change or extend the method (new cache rule, new stream order, new variant) | `tda_replica.py` |
-| change the report or add a table | `experiments.py` (section *Report*) |
-| make plots or analyse what happens along the stream | `notebooks/analysis.ipynb` |
-| compute CLIP features of a dataset once (e.g. CORe50) | nothing: `bash run.sh features core50 --root <folder>` (`extract_features.py`); add `--name core50_350` to keep a second version (e.g. 350x350) next to the first, then use `--dataset core50_350` in `streams.py` |
-| run TDA on saved features with other stream orders (S0-S3) or many seeds | nothing: `python streams.py run ...`, table with `python streams.py summary` |
-| M2 (per-class mean in the positive cache), oracle (cache with true labels), CLIP temporal smoothing | nothing: `--mode tda,m2,oracle,clip,smooth --window 5,15,30` in `streams.py run` (code: `tda_replica.py` `apply_mode`, `DynamicCache.positive_logits`; `streams.py` `run_smoothing`) |
-| understand what happens inside the stream (cold start, sessions, error runs, cache content) | run with `--trace`, then `python analyze_traces.py --dataset core50 --backbone RN50` (plots + `summary.md` in `results/analysis/`) |
-| run the stream experiments on Colab from saved features (no dataset download) | `notebooks/streams_colab.ipynb`: copy the feature files to `MyDrive/TDA_replication/results/features/`, edit Settings, Run all |
-| Stream-51 (second sequential dataset) | `bash run.sh features stream51 --root <folder with Stream-51_meta_train.json>` (frames cropped to the object box as in the official loader; `--no-crop --name stream51_full` for full frames), then orders `s0,s1,instance,class_instance,class_iid` |
-
-Created when you run it, and ignored by git: `TDA/` (official repository), `results/` (everything to look at),
-`logs/` (full logs), and the datasets folder (`~/tda_data` by default).
-
-You do not need Linux on your own computer: everything runs on the cluster (Linux) or on Colab. From your
-computer you only use `ssh` and `scp`, which work the same in Windows PowerShell, macOS and Linux.
+Created at run time and not versioned: `TDA/` (official repository, cloned by the setup), `results/` (raw runs, features, traces),
+`logs/`, datasets.
 
 ---
 
-## Option A: SLURM cluster (recommended)
+## Setup
 
-You need: an account on a Linux cluster with SLURM and NVIDIA GPUs, `conda` (or a `miniconda3` module), `git`,
-internet access from the login node, and about **25 GB** of disk (60 GB with SUN397).
-
-### Step 1. Connect and clone
+**Cluster (SLURM, recommended).** Needs conda (or a `miniconda3` module), git, a GPU partition, about 25 GB of disk.
 
 ```bash
-ssh <username>@<cluster-login-address>          # e.g. ssh 1234567@slogin.unibocconi.it
 git clone https://github.com/gretadell/Visionaries-group-project---TDA.git TDA_replication
 cd TDA_replication
+nano config.sh            # set SLURM_ACCOUNT and SLURM_PARTITION (Bocconi: partition and qos "stud")
+bash run.sh setup         # conda env "tda" (Python 3.7, PyTorch 1.12.1), official repo in TDA/, CLIP weights
+bash run.sh check         # GPU job: dataset sizes + equivalence test (replica vs official code must PASS)
 ```
 
-Some university clusters accept connections only from the campus network or the university VPN: if `ssh`
-hangs, turn on the VPN. If the repository is private, `git clone` asks for your GitHub username and a
-[personal access token](https://github.com/settings/tokens) instead of the password.
-
-### Step 2. Set your SLURM account and GPU partition
-
-```bash
-sacctmgr show assoc user=$USER format=Account,Partition,QOS -P    # -> your account
-sinfo -o "%P %G %l"                                              # -> a partition whose GRES column shows gpu:...
-nano config.sh          # replace the two CHANGE_ME, then Ctrl+O, Enter, Ctrl+X
-```
-
-In `config.sh` you can also change where datasets are stored (`DATA_DIR`: use a scratch/work folder if your home
-quota is small) and the resources of each job.
-
-### Step 3. One-time setup (about 10 minutes)
-
-```bash
-bash run.sh setup
-```
-
-Creates the conda environment `tda` with the authors' versions (Python 3.7, PyTorch 1.12.1, CUDA 11.3), clones
-the official repository into `TDA/` and downloads the CLIP weights. Safe to run again.
-
-### Step 4. Download the datasets (1-3 hours, in the background)
-
-```bash
-bash run.sh data          # starts in the background: you can close the terminal
-bash run.sh data-log      # watch progress (Ctrl+C stops watching, not the download)
-```
-
-12 of the 15 datasets download automatically; SUN397 (37 GB) with `bash run.sh data --with-sun397`; ImageNet and
-Stanford Cars by hand (see [Datasets](#datasets)). Every experiment runs on the datasets that are present.
-
-### Step 5. Quick check (one GPU job, about 15 minutes)
-
-```bash
-bash run.sh check
-bash run.sh status        # wait until the job leaves the queue
-cat results/REPORT.md
-```
-
-Checks the test-set sizes and runs the **equivalence test**: the official code and the re-implementation on the
-same 500 images must give identical predictions. The report must show `✅ PASS`.
-
-### Step 6. Reproduce the paper
-
-```bash
-bash run.sh all
-```
-
-Submits the check and then the four paper experiments (`paper_cd`, `paper_ood`, `ablation_components`,
-`ablation_shots`), one GPU job per backbone; they start only if the check succeeds. `results/REPORT.md` is
-rebuilt at the end of every job.
-
-### Step 7. Your own experiments
-
-```bash
-bash run.sh list                  # experiments defined in experiments.yaml
-bash run.sh run seeds stream_order
-```
-
-See [Experiments](#experiments) to add one.
-
-### Step 8. Copy the results to your computer
-
-```bash
-# on YOUR computer, not on the cluster
-scp -r <username>@<cluster-login-address>:~/TDA_replication/results ./tda_results
-```
+**Colab.** Open a notebook from `notebooks/`, choose a T4 GPU and *Run all*. The notebooks clone this repository and use the
+same scripts; results are written to `MyDrive/TDA_replication/results/`. The stream experiments only need the saved feature
+files (`results/features/<dataset>__<backbone>.pt`), not the datasets.
 
 ---
 
-## Option B: Google Colab
+## Reproducing the report
 
-1. Open [`notebooks/colab.ipynb`](notebooks/colab.ipynb) in Colab:
-   `https://colab.research.google.com/github/gretadell/Visionaries-group-project---TDA/blob/main/notebooks/colab.ipynb`
-2. *Runtime → Change runtime type → GPU*.
-3. In the *Settings* cell set `REPO_URL`, the datasets and the experiments, then *Runtime → Run all*.
+All stream experiments run on saved features, so a run takes seconds to minutes. Finished runs are skipped, so every command
+can be relaunched after an interruption. `RN50` can be replaced by `ViT-B/16`.
 
-The notebook clones this repository and runs the **same files** (`prepare_data.py`, `experiments.py`,
-`experiments.yaml`), so there is nothing to keep in sync. Results go to `MyDrive/TDA_replication/results/` on
-Google Drive. Colab uses its own PyTorch version and sessions last a few hours: fine for the cross-domain
-datasets, too short for the OOD benchmark. If the repository is private, `REPO_URL` needs a token (see the
-notebook).
-
----
-
-## Experiments
-
-Every experiment is a block of [`experiments.yaml`](experiments.yaml). For example:
-
-```yaml
-stream_order:
-  description: i.i.d. stream vs images grouped by class
-  datasets: [dtd, eurosat, oxford_pets]     # or cd / ood = the whole benchmark
-  backbones: [RN50]
-  grid:                                     # every combination is one run
-    order: [random, sorted]
-    seed: [1, 2, 3]
-  time: "08:00:00"                          # SLURM time limit per job
-```
-
-Run it with `bash run.sh run stream_order` (cluster) or `python experiments.py run stream_order` (Colab).
-Preview what would run, without a GPU: `python experiments.py run stream_order --dry-run`.
-
-What a grid can vary:
-
-| Key | Values | Meaning |
+| Report | Command | Output in `results_summary/` |
 |---|---|---|
-| `mode` | `tda`, `pos`, `neg`, `clip` | full TDA, positive cache only, negative cache only, zero-shot CLIP |
-| `seed` | integers | random seed (1 = the paper's) |
-| `order` | `official`, `random`, `sorted` | order of the test stream, see below |
-| any config value | e.g. `positive.shot_capacity`, `positive.alpha`, `positive.beta`, `negative.alpha`, `negative.entropy_threshold.lower`, `negative.mask_threshold.lower` | overrides the official `configs/<dataset>.yaml` |
+| Sec. 5.1, Tabs. 2, A1, A2: reproduction | `bash run.sh data` then `bash run.sh all` | `1_reproduction/` |
+| Tab. A3: TDA config for CORe50 | `python streams.py run --dataset core50 --backbone RN50 --cfg-like <config> --sessions 1,2,4,5,6,8,9,11 --every 5 --order s0 --mode tda --repeats 5` (one run per official config) | `README.md`, section 2 |
+| Features | `bash run.sh features core50 --root <CORe50 128 folder>`; `... --name core50_350` for the full frames; `bash run.sh features-icwt`; UCF101 in `notebooks/ucf101_video_colab.ipynb` | — |
+| Sec. 5.2, Tab. 3, A7, A8: stream orders | `python streams.py run --dataset core50_350 --backbone RN50 --cfg-like caltech101 --sessions 3,7,10 --order s0,s1,s2,s3 --rho 0.5,0.9 --mode tda,clip,m2,oracle --repeats 50` (iCWT / UCF101: 10 repeats, `--cfg-like ucf101` for UCF101) | `3_core50_128/`, `4_core50_350/`, `5_icwt/`, `6_ucf101/` |
+| Smoothing baseline (Tab. A6) | same command with `--mode smooth --window 5,15,30 --order s3,instance` | same folders |
+| Sec. 5.3, Tab. 4, Fig. 3: traces | add `--trace` (10 seeds), then `python analyze_traces.py --dataset core50_350 --backbone RN50` | `*/analysis/` |
+| Paired tests | `python paired_tests.py results/feature_runs.jsonl --dataset core50_350 --config caltech101 --out tests.md` | `*_tests.md`, `*/context_final/paired_ctxx_*.md` |
+| Sec. 5.4, Tab. 5: CTXX selection | `python select_context_params.py` (non-test sessions only) | `7_context_selection/` |
+| Sec. 5.4, Fig. 4, Tabs. A4, A5: CTXX | `python context_cache.py --dataset core50_350 --backbone RN50 --cfg-like caltech101 --sessions 3,7,10 --order s0,s2,s3 --mode ctxx --window 300 --strength 0.5 --repeats 10` | `*/context_final/` |
+| Tab. A9: retrieval analysis | `sbatch retrieval_job.sh` (or `python retrieval_analysis.py run ...` then `python retrieval_analysis.py summary`) | `8_retrieval_check/` |
 
-A list of grids runs each of them (see `ablation_shots`). Stream orders:
-
-- **`official`**: the authors' shuffled stream. Only this one reproduces the paper's numbers. With it, each dataset's
-  stream depends on the datasets before it in the run (shared random generator), as in the official scripts.
-- **`random`**: a new shuffle for every seed that depends only on (seed, dataset), so results do not change if you
-  add or remove other datasets. Use it for multi-seed studies.
-- **`sorted`**: images grouped by class (all of class 0, then class 1, ...): a non-i.i.d. stream, the hard case for an
-  online cache.
-
-Finished runs are never repeated: if a job hits its time limit, or you add a value to a grid, submit the same
-experiment again and only the missing runs are executed (`--force` re-runs everything). Every run also records
-CLIP's accuracy on the same stream and a per-image trace for the [analysis notebook](#results-and-analysis).
-
-`experiments.yaml` already contains three examples besides the paper: `seeds` (variance over 5 shuffles),
-`stream_order` (i.i.d. vs sorted) and `alpha_beta` (sensitivity to the positive-cache hyper-parameters).
+Tables of any set of runs: `python streams.py summary --dataset <name>` (mean and 95% CI over seeds).
 
 ---
 
-## Extending the method
+## Notes
 
-All of the method is in [`tda_replica.py`](tda_replica.py), and its header lists where to plug in a change:
-
-| Extension | Where |
-|---|---|
-| a new stream order (class blocks, increasing difficulty, ...) | `make_stream()` + add the name to `ORDERS` |
-| a different cache policy or read-out | `DynamicCache`, or a new class used in `run_tda()` |
-| a new variant of the method | add a name to `MODES` and handle it in `run_tda()` |
-| a hyper-parameter | no code: a grid key in `experiments.yaml` |
-
-A new mode or order is immediately usable in `experiments.yaml` (`mode: [tda, myvariant]`), appears in the report
-next to TDA and CLIP, and gets a trace for the analysis notebook.
-
-After changing `tda_replica.py`, run `bash run.sh check`: the equivalence test still compares the default `tda` mode
-with the official code, so it tells you whether the original method is still exact.
-
----
-
-## Results and analysis
-
-Everything is written to `results/` (on Colab: `MyDrive/TDA_replication/results/`):
-
-| File | Content |
-|---|---|
-| **`REPORT.md`** | status, Table 1 and Table 3 (CLIP / paper / official code / replica / differences, ✅ ⚠️ ❌), ablations, a table for every other experiment, test-set sizes |
-| `summary.csv` | the numbers of the report in long format, for Excel or a thesis |
-| `shot_capacity.png` | reproduction of Fig. 4 |
-| `runs.jsonl` | raw results: one JSON line per run and dataset (accuracy, CLIP accuracy, all settings) |
-| `traces/*.csv.gz` | for every run and dataset, one row per test image: true class, CLIP and TDA predictions, entropy, cache updates and sizes |
-| `dataset_check.json` | test-set sizes found on disk |
-
-How to read the report: *Replica − Official* must be **0.00** everywhere; *Replica − Paper* within ±0.5 (✅) is the
-normal noise of a different GPU and library versions. Above 1 point (❌), first check that dataset's test-set size.
-
-[`notebooks/analysis.ipynb`](notebooks/analysis.ipynb) reads `results/` and needs no GPU (only `pandas` and
-`matplotlib`), so it also runs on your computer after `scp`. It contains:
-
-1. an overview of all experiments;
-2. running accuracy of CLIP and TDA along the stream, and the gain in a moving window;
-3. cache dynamics: how the caches fill and how often they are updated;
-4. images fixed and broken by TDA, by CLIP's entropy;
-5. effect of stream order and seeds (spread over seeds, i.i.d. vs sorted);
-6. per-class gains;
-7. heatmaps for two-parameter grids.
-
-Figures are saved in `results/figures/`.
-
----
-
-## All commands
-
-On the cluster, from the repository folder:
-
-| Command | Runs on | What it does |
-|---|---|---|
-| `bash run.sh setup` | login node | conda env, official repo, CLIP weights (once) |
-| `bash run.sh data [names]` | login node, background | download and arrange datasets (safe to re-run) |
-| `bash run.sh data-log` | login node | follow the download log |
-| `bash run.sh check` | GPU job | test-set sizes + equivalence test |
-| `bash run.sh all` | GPU jobs | check, then the four paper experiments |
-| `bash run.sh run NAME [NAME...]` | GPU jobs | experiments of `experiments.yaml`, one job per backbone |
-| `bash run.sh list` | login node | experiments defined in `experiments.yaml` |
-| `bash run.sh status` | login node | your queue + last progress line of each log |
-| `bash run.sh report` | login node | rebuild `results/REPORT.md` |
-| `bash run.sh cancel` | login node | cancel all TDA jobs |
-
-The same steps without SLURM (Colab, or an interactive GPU session): `python prepare_data.py`,
-`python experiments.py check`, `python experiments.py run NAME`, `python experiments.py report`.
-
----
-
-## Datasets
-
-Datasets follow the official [`docs/DATASETS.md`](https://github.com/kdiAAA/TDA/blob/main/docs/DATASETS.md) and the
-CoOp `split_zhou_*.json` splits.
-
-| Benchmark | Downloaded automatically | Manual |
-|---|---|---|
-| Cross-domain (Table 3) | Caltech101, DTD, EuroSAT, FGVC Aircraft, Food101, Flowers102, OxfordPets, UCF101, SUN397 (optional, 37 GB) | Stanford Cars |
-| OOD (Table 1) | ImageNet-A, ImageNet-V2, ImageNet-R, ImageNet-Sketch | ImageNet val |
-
-Names in `experiments.yaml`: `I A V R S caltech101 dtd eurosat fgvc food101 oxford_flowers oxford_pets
-stanford_cars sun397 ucf101`, or `cd` / `ood` for a whole benchmark. For the download step (`bash run.sh data
-<names>`) the ImageNet family is called `imagenet imagenet-a imagenet-v imagenet-r imagenet-s`.
-
-**Manual datasets.** Put the files in `~/tda_data/manual/` (Colab: `MyDrive/TDA_replication/manual/`) and run the
-data step again.
-
-| Dataset | Files | Where to get them |
-|---|---|---|
-| ImageNet val | `ILSVRC2012_img_val.tar`, `ILSVRC2012_devkit_t12.tar.gz` | free account at [image-net.org](https://image-net.org/download-images.php) |
-| Stanford Cars | `stanford_cars/cars_test.tgz`, `stanford_cars/cars_test_annos_withlabels.mat` (+ optional `car_devkit.tgz`) | the original links are dead; a Kaggle mirror of the original files |
-
-```bash
-scp ILSVRC2012_img_val.tar ILSVRC2012_devkit_t12.tar.gz <username>@<cluster-login-address>:~/tda_data/manual/
-```
-
-Some downloads come from mirrors (Caltech101 from data.caltech.edu, EuroSAT and ImageNet-Sketch from Hugging Face).
-If one fails, `logs/prepare_data.log` says which file to place by hand and where.
-
----
-
-## How the method works
-
-TDA adapts CLIP **at test time, without backpropagation**. Test images arrive one at a time:
-
-1. **Zero-shot CLIP.** `logits = 100 · f · W_c`, with `f` the normalized image feature and `W_c` the class text
-   embeddings averaged over prompt templates.
-2. **Multi-view (OOD datasets only).** 63 AugMix views + the original; keep the 10% with the lowest entropy and
-   average their features and logits.
-3. **Positive cache.** One queue per predicted class, capacity `k`. When full, a new sample replaces the
-   highest-entropy entry if it has lower entropy.
-4. **Negative cache.** Samples with normalized entropy in (0.2, 0.5), stored with their probability map; capacity 2.
-5. **Final logits.** `clip + A_pos(f·Q_p)·L_p − A_neg(f·Q_n)·mask`, with `A(z) = α·exp(−β(1 − z))` and
-   `mask` = 1 for classes with probability in (0.03, 1.0).
-
-Eq. 4 and Eq. 6 of the paper contain a double minus sign for the negative cache; this repository follows the
-official code (subtract the negative term). The Colab notebook explains the method in detail, with formulas.
-
----
-
-## Troubleshooting
-
-| Problem | Fix |
-|---|---|
-| `ERROR: open config.sh and set SLURM_ACCOUNT...` | Step 2 |
-| `ERROR: run 'bash run.sh setup' first.` | Step 3 |
-| `conda not found` | the cluster has no `miniconda3` module: install [Miniconda](https://docs.conda.io/en/latest/miniconda.html) in your home, then `bash run.sh setup` |
-| `sbatch: error: invalid account or account/partition combination` | check the values with `sacctmgr show assoc user=$USER` |
-| `unknown experiment '...'` | the name is not a block of `experiments.yaml` (`bash run.sh list`) |
-| `--set ...: '...' is not in the config` | a grid key has a typo; valid keys are in the official `TDA/configs/<dataset>.yaml` |
-| `$'\r': command not found` | Windows line endings (files copied by hand instead of `git clone`): `sed -i 's/\r$//' *.sh` |
-| A dataset is `NOT ready` in the download summary | read the error in `logs/prepare_data.log`; Google Drive quota errors go away after a few hours |
-| Job pending for a long time (`Resources` / `Priority`) | normal on a shared cluster; shorter `time:` limits can help |
-| Job ended with `TIMEOUT` | raise `time:` of that experiment and submit it again: finished runs are skipped |
-
----
-
-## Expected deviations from the paper
-
-Even the official code does not give exactly the published numbers on a different machine. Expect about
-**±0.1-0.5 points per dataset**, a little more on the OOD datasets; averages are more stable.
-
-- TDA is online, so accuracy depends on the order of the stream. Same seed → same order, but a different GPU or
-  PyTorch version can change fp16 rounding and the shuffle.
-- ImageNet-A/V2/R/Sketch use random AugMix views generated by 8 parallel workers: not bit-reproducible.
-- If a dataset is missing, the official streams of the datasets after it change.
-- The official loader skips files whose name contains `"sh"` (e.g. ImageNet-R `plushie_*` images), so some test sets
-  are slightly smaller than expected. This quirk is kept on purpose.
-
----
+- **Equivalence.** `bash run.sh check` compares `tda_replica.py` with the official functions on the same 500 images; every
+  extension keeps `--mode tda` as the original method, so the check stays valid after changes.
+- **Same streams for every method.** A stream depends only on (seed, dataset, order), so methods are compared seed by seed.
+- **No tuning on test data.** The TDA configuration and the CTXX parameters were chosen on CORe50 sessions 1, 2, 4, 5, 6, 8, 9,
+  11 and frozen; the test sessions are 3, 7 and 10.
+- **Windows line endings.** After copying files from Windows run `sed -i 's/\r$//' *.sh *.py` on the cluster.
+- **Datasets not used.** ImageNet, Stanford Cars and SUN397 (reproduction) and Stream-51 (download link no longer available).
 
 ## Credits
 
-- Method and official code: Adilbek Karmanov, Dayan Guan, Shijian Lu, Abdulmotaleb El Saddik, Eric Xing,
-  [kdiAAA/TDA](https://github.com/kdiAAA/TDA).
-- CLIP: [openai/CLIP](https://github.com/openai/CLIP). Datasets and splits: [CoOp](https://github.com/KaiyangZhou/CoOp).
-
-The official code, the CLIP weights and the datasets are downloaded from their sources and are **not**
-redistributed here; they keep their own licenses.
-
-```bibtex
-@inproceedings{karmanov2024efficient,
-  title     = {Efficient Test-Time Adaptation of Vision-Language Models},
-  author    = {Karmanov, Adilbek and Guan, Dayan and Lu, Shijian and El Saddik, Abdulmotaleb and Xing, Eric},
-  booktitle = {Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)},
-  year      = {2024}
-}
-```
+TDA method and official code: Karmanov, Guan, Lu, El Saddik, Xing ([kdiAAA/TDA](https://github.com/kdiAAA/TDA)).
+CLIP: [openai/CLIP](https://github.com/openai/CLIP). Datasets: CORe50 (Lomonaco & Maltoni, CC BY 4.0), iCubWorld Transformations
+(Pasquale et al.), UCF101 (Soomro et al.), CoOp splits. Datasets, weights and the official code are downloaded from their sources
+and not redistributed here.
