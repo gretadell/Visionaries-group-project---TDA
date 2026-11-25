@@ -12,7 +12,6 @@ One place for every result of the report, with the settings used.
 | 6 | UCF101 as a video stream | `6_ucf101/` | ✅ done, 10 seeds with traces, paired tests |
 | 7 | Context subtraction (our method) | section 7, `*/context_final/` | ✅ done on all four datasets |
 | 8 | Retrieval check: which cache entries drive the vote | section 8, `8_retrieval_check/` | ✅ done, CORe50 350, 3 seeds |
-| — | Stream-51 | — | ❌ dropped: official download link is dead, no mirror found |
 
 **Statistics.** Besides the per-mode 95% CI, `paired_tests.py` compares modes **seed by seed** (same order and same seed = exactly the same stream: paired bootstrap CI, sign test, paired t-test) and compares orders as **independent samples** (Welch). Files: `*_tests.md` in each folder.
 
@@ -60,7 +59,6 @@ Colab (RN50) and the HPC cluster agree within 0.25 points.
 
 **Takeaways.** Table 1 is reproduced with both backbones (all within 0.7 points). Table 3 is reproduced with RN50; with ViT, 4 datasets deviate by 1–5 points in both directions. Since the official code gives the same numbers, the likely causes are the single stream order used in the paper and/or the published hyper-parameters (not checked yet).
 
-**Missing:** ImageNet (needs an image-net.org account; also needed for the ablations in Fig. 3–4), Stanford Cars (official links dead, Kaggle copy possible), SUN397 (37 GB, over the 50 GB cluster quota).
 
 ---
 
@@ -290,35 +288,3 @@ Seeds: 50 on CORe50, 10 on iCWT and UCF101.
 9. **Context subtraction helps only where the background dominates and is unrelated to the class.** Selected on CORe50 350 non-test sessions (+4.8 over TDA on validation), it raises TDA on CORe50 350 (full frame) by +2.2 to +6.1 in every order with both backbones (10/10 seeds) and brings RN50 S0 above CLIP. It lowers TDA on the CORe50 128 crops (-0.9 to -2.3), where there is little background, and on UCF101 (-0.6 to -1.15 in every order), where the background is evidence for the class; on the iCWT crops the effect is small (+0.5 RN50, -1.0 ViT-B/16). It always stays above CLIP.
 10. **The cache votes by session, not by object (section 8).** On shuffled CORe50 350 (RN50), same-session entries are 33% of the cache but receive 52% of the affinity weight, while the correct class receives 12.8% (chance 10%). CTXX raises the weight on the correct class to 17-22% in every order.
 9-v2: 9. **Context subtraction helps only where the background dominates and is unrelated to the class.** Selected on CORe50 350 non-test sessions (+4.8 over TDA on validation), it raises TDA on CORe50 350 (full frame) by +2.2 to +6.1 in every order with both backbones (10/10 seeds) and brings RN50 S0 above CLIP. It lowers TDA on the CORe50 128 crops (−0.9 to −2.3), where there is little background, and on UCF101 (−0.6 to −1.15 in every order), where the background is evidence for the class; on the iCWT crops the effect is small (+0.5 RN50, −1.0 ViT-B/16). It always stays above CLIP.
-
-## Status
-
-- [x] iCWT, UCF101: final runs, paired tests, trace analysis
-- [x] Paired tests on all four datasets (`paired_tests.py`)
-- [x] Traces on CORe50 350 and CORe50 128, 10 seeds
-- [x] Context subtraction: code, pilots, parameter selection on non-test sessions, CORe50 128 final runs
-- [x] Context subtraction: final runs on CORe50 350 and iCWT, added to section 7
-- [x] Context subtraction: final runs on UCF101, section 7
-- [x] Paired tests ctxx − TDA and ctxx − CLIP (`paired_tests.py` extended: any extra mode, e.g. ctx/ctxx, is compared with TDA and CLIP on the same streams)
-- [x] Decide on ImageNet / Stanford Cars / SUN397: reproduction kept without them
-- [x] Retrieval check on CORe50 350 (section 8)
-- [x] Write the report
-
-## Extension ideas (to discuss)
-
-0. **Context subtraction (now section 7):** keep a running average of the last frames' features, which estimates the current context (background, lighting), and subtract it before the cache lookup. No labels, no training, one extra hyper-parameter (length of the average). Caveat: in S3 the recent frames are mostly the same object, so the average may estimate the object rather than the background.
-1. **Session-aware cache:** since session context drives the gains, try resetting the cache at each session change, or one cache per session.
-2. **Temporally consistent cache insertion:** add a frame to the cache only if neighbouring frames agree on the prediction, to keep repeated errors out in video streams (S3), where the oracle shows label noise costs accuracy.
-3. **When does TDA hurt?** On 350 RN50 S0, TDA is below CLIP: test a stricter confidence (entropy) threshold for cache insertion.
-4. **Background vs object:** 128 vs 350 isolates the role of background; a background-masked or center-cropped variant could confirm it.
-
----
-
-## Reproducing on the Bocconi cluster (notes)
-
-- Login: `ssh <student ID>@slogin.hpc.unibocconi.it` (VPN GlobalProtect if the Wi-Fi does not reach the cluster).
-- `config.sh`: `SLURM_ACCOUNT="<student ID>"`, `SLURM_PARTITION="stud"`, `SLURM_QOS="stud"`, `MEM="64G"`.
-- After every `git pull`: `sed -i 's/\r$//' *.sh *.py *.yaml` (Windows line endings) and set 24 h instead of 48 h in `experiments.yaml`.
-- Before `bash run.sh setup`: `conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main` (same for `/pkgs/r`).
-- Environment: `module load miniconda3` then `eval "$(conda shell.bash hook)" && conda activate tda`.
-- Limits: 24 h per job, one job running at a time, at most 4 jobs queued per user, 50 GB home quota.
